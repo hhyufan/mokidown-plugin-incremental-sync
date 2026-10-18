@@ -106,7 +106,11 @@ definePlugin(async (sdk) => {
   });
   sdk.on('versionSelected', async (payload) => {
     if (!versionTarget || !Number.isSafeInteger(payload?.rev)) return;
-    const detail = await sdk.rpc('net.request', { path: `/sync/file/${encodeURIComponent(versionTarget.fileId)}/versions/${payload.rev}`, method: 'GET' }).catch(() => null);
+    let detail = await sdk.rpc('net.request', { path: `/sync/file/${encodeURIComponent(versionTarget.fileId)}/versions/${payload.rev}`, method: 'GET' }).catch(() => null);
+    // Old servers have no per-revision route: compare with the current one.
+    if (detail?.status !== 200 || typeof detail.data?.content !== 'string') {
+      detail = await sdk.rpc('net.request', { path: `/sync/file/${encodeURIComponent(versionTarget.fileId)}`, method: 'GET' }).catch(() => null);
+    }
     if (detail?.status !== 200 || typeof detail.data?.content !== 'string') return;
     await sdk.rpc('editor.showDiff', {
       path: versionTarget.path,
