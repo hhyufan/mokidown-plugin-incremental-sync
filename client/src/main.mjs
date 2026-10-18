@@ -12,6 +12,18 @@ const BADGES = { success: cloud('#3fb950'), warning: cloud('#d29922'), error: cl
 
 definePlugin(async (sdk) => {
   let engine, timer, scheduled, publishing = false, again = false, versionTarget = null;
+  // Keep a local snapshot history so cloud history works even with servers
+  // that do not store revisions (and gives us the content for diffs).
+  const recordSnapshot = async ({ fileId, rev, checksum, size, content }) => {
+    if (!fileId || !Number.isSafeInteger(rev) || typeof content !== 'string') return;
+    if (content.length > 512 * 1024) return;
+    const key = `history:${fileId}`;
+    const stored = await sdk.storage.get(key).catch(() => null);
+    const list = Array.isArray(stored) ? stored : [];
+    if (list.some((entry) => entry.rev === rev)) return;
+    list.push({ rev, checksum, size, content, updatedAt: Date.now() });
+    await sdk.storage.set(key, list.slice(-10)).catch(() => {});
+  };
   const statusIds = new Set(), presentations = new Map();
   const publish = async () => {
     if (publishing) { again = true; return; }
@@ -52,35 +64,38 @@ definePlugin(async (sdk) => {
           || versionTarget.rev !== activeRecord[1].rev
           || stamp - (versionTarget.fetchedAt || 0) > 3000;
         if (shouldFetch) {
-          versionTarget = {
-            fileId: activeRecord[0],
-            path: activeDocument.relativePath,
-            rev: activeRecord[1].rev,
-            fetchedAt: stamp,
-          };
-          const list = await sdk.rpc('net.request', { path: `/sync/file/${encodeURIComponent(activeRecord[0])}/versions`, method: 'GET' }).catch(() => null);
-          let versions = Array.isArray(list?.data?.versions) ? list.data.versions : [];
-          let emptyText = !list ? '无法连接同步服务' : list.status === 200 ? '暂无历史' : `云端历史不可用（HTTP ${list.status}）`;
-          // Old servers have no /versions route: fall back to the current
-          // revision so the panel still shows the cloud version.
-          if (list?.status === 404) {
-            const current = await sdk.rpc('net.request', { path: `/sync/file/${encodeURIComponent(activeRecord[0])}`, method: 'GET' }).catch(() => null);
-            if (current?.status === 200 && Number.isSafeInteger(current.data?.rev)) {
-              versions = [{ rev: current.data.rev, checksum: current.data.checksum, size: current.data.size, updatedAt: current.data.updatedAt }];
-              emptyText = '暂无历史';
+          versionTarget = { fileId: activeRecord[0], path: activeDocument.relativePath, rev: activeRecord[1].rev, fetchedAt: stamp };
+          // Prefer the plugin's own snapshot history (old servers lack /versions).
+          const storedKey = `history:${activeRecord[0]}`;
+          const stored = await sdk.storage.get(storedKey).catch(() => null);
+          let items = [];
+          let emptyText = '暂无历史';
+          if (Array.isArray(stored) && stored.length) {
+            items = stored.slice().reverse().map((entry) => ({
+              id: `${activeRecord[0]}:${entry.rev}`,
+              label: `rev ${entry.rev}`,
+              meta: new Date(entry.updatedAt || Date.now()).toLocaleString(),
+              rev: entry.rev,
+            }));
+          } else {
+            const list = await sdk.rpc('net.request', { path: `/sync/file/${encodeURIComponent(activeRecord[0])}/versions`, method: 'GET' }).catch(() => null);
+            let versions = Array.isArray(list?.data?.versions) ? list.data.versions : [];
+            emptyText = !list ? '无法连接同步服务' : list.status === 200 ? '暂无历史' : `云端历史不可用（HTTP ${list.status}）`;
+            if (list?.status === 404) {
+              const current = await sdk.rpc('net.request', { path: `/sync/file/${encodeURIComponent(activeRecord[0])}`, method: 'GET' }).catch(() => null);
+              if (current?.status === 200 && Number.isSafeInteger(current.data?.rev)) {
+                versions = [{ rev: current.data.rev, checksum: current.data.checksum, size: current.data.size, updatedAt: current.data.updatedAt }];
+                emptyText = '暂无历史';
+              }
             }
-          }
-          await sdk.versions.set({
-            path: activeDocument.relativePath,
-            title: '云端历史',
-            emptyText,
-            items: versions.map((version) => ({
+            items = versions.map((version) => ({
               id: `${activeRecord[0]}:${version.rev}`,
               label: `rev ${version.rev}`,
               meta: new Date(version.updatedAt || Date.now()).toLocaleString(),
               rev: version.rev,
-            })),
-          }).catch(() => {});
+            }));
+          }
+          await sdk.versions.set({ path: activeDocument.relativePath, title: '云端历史', emptyText, items }).catch(() => {});
         }
       } else if (versionTarget) {
         const stale = versionTarget.path;
@@ -94,7 +109,7 @@ definePlugin(async (sdk) => {
     } finally { publishing = false; if (again) { again = false; schedule(); } }
   };
   const schedule = () => { if (scheduled || sdk.signal.aborted) return; scheduled = setTimeout(() => { scheduled = null; void publish().catch(console.error); }, 32); };
-  engine = new IncrementalSync(sdk.rpc, schedule);
+  engine = new IncrementalSync(sdk.rpc, schedule, { onSynced: recordSnapshot });
   sdk.onDispose(() => { engine.stop(); clearInterval(timer); clearTimeout(scheduled); });
   await sdk.commands.register('sync.now', '立即同步', () => engine.cycle());
   // Show the cloud revisions of the currently open file (cloud files only).
@@ -106,6 +121,14 @@ definePlugin(async (sdk) => {
   });
   sdk.on('versionSelected', async (payload) => {
     if (!versionTarget || !Number.isSafeInteger(payload?.rev)) return;
+    // Prefer the cached snapshot (has content, works with old servers).
+    const storedKey = `history:${versionTarget.fileId}`;
+    const stored = await sdk.storage.get(storedKey).catch(() => null);
+    const cached = Array.isArray(stored) ? stored.find((entry) => entry.rev === payload.rev) : null;
+    if (cached && typeof cached.content === 'string') {
+      await sdk.rpc('editor.showDiff', { path: versionTarget.path, content: cached.content, label: `云端历史 rev ${payload.rev}`, actionLabel: '使用此版本', applyIcon: 'cloud-download', rev: payload.rev }).catch(() => {});
+      return;
+    }
     let detail = await sdk.rpc('net.request', { path: `/sync/file/${encodeURIComponent(versionTarget.fileId)}/versions/${payload.rev}`, method: 'GET' }).catch(() => null);
     // Old servers have no per-revision route: compare with the current one.
     if (detail?.status !== 200 || typeof detail.data?.content !== 'string') {

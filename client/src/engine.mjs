@@ -45,7 +45,7 @@ async function encodeDocument(content) {
 }
 
 export class IncrementalSync {
-  constructor(rpc, report = () => {}) { this.rpc = rpc; this.report = report; this.running = false; this.stopped = false; this.activePath = null; this.fileErrors = new Map(); }
+  constructor(rpc, report = () => {}, hooks = {}) { this.rpc = rpc; this.report = report; this.hooks = hooks; this.running = false; this.stopped = false; this.activePath = null; this.fileErrors = new Map(); }
   stop() { this.stopped = true; }
   async call(method, args) {
     if (this.stopped) throw new Error('Plugin stopped');
@@ -98,6 +98,9 @@ export class IncrementalSync {
       this.fileErrors.delete(pending.path);
       if (pending.resolution) this.finalizeResolution(pending.fileId, pending.path);
       await this.save();
+      if (pending.method !== 'DELETE') {
+        await this.hooks?.onSynced?.({ fileId: pending.fileId, path: pending.path, rev: doc.rev, checksum: pending.body.checksum, size: pending.body.size, content: pending.body.content });
+      }
       if (pending.resolution) this.report({ phase: '冲突解决完成', path: pending.path, resolved: true, state: this.state });
     } catch (error) {
       if (error.status !== 409 || error.data.code !== 'REV_CONFLICT') { this.fileErrors.set(pending.path, error.message); throw error; }
