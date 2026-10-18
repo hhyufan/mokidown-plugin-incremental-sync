@@ -19,7 +19,7 @@ definePlugin(async (sdk) => {
     // Status bar refers to the open document only, not every conflict.
     const activeConflicts = active?.path
       ? conflicts.filter(([, conflict]) => matchPath(normalize(active.path), normalize(conflict.path)))
-      : conflicts;
+      : [];
     const text = update.error
       ? '同步错误'
       : activeConflicts.length
@@ -96,7 +96,8 @@ definePlugin(async (sdk) => {
     if (!payload?.path) return;
     const entry = Object.entries(engine.state?.conflicts || {}).find(([, conflict]) => matchPath(normalize(payload.path), normalize(conflict.path)));
     if (!entry) return;
-    await engine.resolve(entry[0], 'local').catch(() => {});
+    for (let i = 0; i < 50 && engine.running; i += 1) await new Promise((resolve) => setTimeout(resolve, 100));
+    await engine.resolve(entry[0], 'local').catch((error) => { update = { phase: error.message, error: true, state: engine.state }; });
     update = { phase: '冲突已处理', state: engine.state };
     await publish();
   });
@@ -105,7 +106,8 @@ definePlugin(async (sdk) => {
     if (!payload?.path) return;
     const entry = Object.entries(engine.state?.conflicts || {}).find(([, conflict]) => matchPath(normalize(payload.path), normalize(conflict.path)));
     if (!entry) return;
-    await engine.resolve(entry[0], 'remote').catch(() => {});
+    for (let i = 0; i < 50 && engine.running; i += 1) await new Promise((resolve) => setTimeout(resolve, 100));
+    await engine.resolve(entry[0], 'remote').catch((error) => { update = { phase: error.message, error: true, state: engine.state }; });
     update = { phase: '冲突已处理', state: engine.state };
     await publish();
   });

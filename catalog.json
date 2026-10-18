@@ -2,9 +2,9 @@
   {
     "id": "mokidown.incremental-sync",
     "name": "MokiDown 增量同步服务",
-    "version": "1.4.9",
-    "url": "https://github.com/hhyufan/mokidown-plugin-incremental-sync/releases/download/v1.4.9/mokidown.incremental-sync-1.4.9.mokiplugin.json",
-    "sha256": "55fd5954c3cd8e0e2ae29fd1432c0721beb69bfdf24f8d28ed0658620b3cac20",
+    "version": "1.5.0",
+    "url": "https://github.com/hhyufan/mokidown-plugin-incremental-sync/releases/download/v1.5.0/mokidown.incremental-sync-1.5.0.mokiplugin.json",
+    "sha256": "6751f53594a6790bb99dd119b6f74845a18a32d71b8660429289f0548141a508",
     "permissions": [
       "workspace.read",
       "workspace.write",
