@@ -265,10 +265,16 @@ async function main() {
 
   let endpoint = `http://127.0.0.1:${PROXY_PORT}`;
   let tunnel = null;
+  let tunnelAlive = false;
   if (USE_TUNNEL) {
     const cloudflared = await ensureCloudflared();
     process.stdout.write('[3/3] opening public tunnel…\n');
     tunnel = spawn(cloudflared, ['tunnel', '--url', `http://127.0.0.1:${PROXY_PORT}`, '--no-autoupdate'], { stdio: ['ignore', 'pipe', 'pipe'] });
+    tunnelAlive = true;
+    tunnel.on('exit', (code) => {
+      tunnelAlive = false;
+      process.stdout.write(`\n[tunnel] exited (code ${code}) — the public endpoint is gone. Restart to get a new one.\n`);
+    });
     endpoint = await new Promise((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error('tunnel timeout')), 45000);
       const onData = (data) => {
@@ -305,6 +311,17 @@ async function main() {
   };
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
+
+  // Live status line: process alive, ports, tunnel address, uptime.
+  const startedAt = Date.now();
+  const statusTimer = setInterval(() => {
+    const seconds = Math.round((Date.now() - startedAt) / 1000);
+    const state = USE_TUNNEL ? (tunnelAlive ? 'tunnel ok' : 'TUNNEL LOST') : 'local only';
+    const clock = new Date().toLocaleTimeString();
+    process.stdout.write(`[${clock}] running | server :${PORT} | proxy :${PROXY_PORT} | ${state} | ${endpoint} | up ${seconds}s\n`);
+  }, 10000);
+  process.on('SIGINT', () => clearInterval(statusTimer));
+  process.on('SIGTERM', () => clearInterval(statusTimer));
 }
 
 main().catch((error) => {
