@@ -133,7 +133,7 @@ const syncServer = http.createServer((req, res) => {
         .sort((a, b) => a.rev - b.rev)
         .slice(0, limit)
         .map((entry) => ({ fileId: entry.fileId, path: entry.originalPath || entry.fileName, rev: entry.rev, deleted: false }));
-      return json(res, 200, { changes, cursor: db.rev });
+      return json(res, 200, { changes, nextCursor: String(db.rev), hasMore: false, cursor: db.rev });
     }
     json(res, 404, { message: 'Not found' });
   });
