@@ -44,7 +44,7 @@ definePlugin(async (sdk) => {
     finally { resolving = false; }
     await publish();
   });
-  await sdk.fileIcons.set('cloud-sync', { extensions: ['md', 'markdown', 'txt'], svg: CLOUD_ICON });
+  await sdk.fileBadges.set('cloud-sync', { extensions: ['md', 'markdown', 'txt'], svg: CLOUD_ICON, title: '云端同步' });
   sdk.editor.onDidSave(() => engine.cycle());
   await publish();
   const timer = setInterval(() => engine.cycle(), 20000);

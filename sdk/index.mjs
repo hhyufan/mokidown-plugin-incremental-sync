@@ -52,6 +52,7 @@ export function createPluginClient(port, { timeoutMs = 35000 } = {}) {
     commands: { register: async (id, title, callback) => { commands.set(id, callback); await rpc('command.register', { id, title }); return () => { commands.delete(id); void rpc('command.unregister', { id }).catch(report); }; } },
     statusBar: { set: (id, item) => rpc('statusBar.addItem', { id, ...item }), remove: (id) => rpc('statusBar.remove', { id }) },
     fileIcons: { set: (id, item) => rpc('fileIcon.add', { id, ...item }), remove: (id) => rpc('fileIcon.remove', { id }) },
+  fileBadges: { set: (id, item) => rpc('fileBadge.add', { id, ...item }), remove: (id) => rpc('fileBadge.remove', { id }) },
     editor: { getActiveDocument: () => rpc('editor.getActiveDocument'), applyEdits: (documentId, expectedChecksum, edits) => rpc('editor.applyEdits', { documentId, expectedChecksum, edits }), onDidSave: (callback) => on('didSave', callback) },
     styles: { setMarkdown: (id, css) => rpc('styles.set', { id, target: 'markdown', css }), remove: (id) => rpc('styles.remove', { id }) },
     on, onDispose: (callback) => { if (disposed) callback(); else cleanup.push(callback); return callback; },
