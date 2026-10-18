@@ -40,6 +40,29 @@ definePlugin(async (sdk) => {
   engine = new IncrementalSync(sdk.rpc, (next) => { update = next; void publish(); });
   sdk.onDispose(() => engine.stop());
   await sdk.commands.register('sync.now', 'MokiDown：立即同步', () => engine.cycle());
+  await sdk.commands.register('sync.handle', 'MokiDown：处理同步差异', async () => {
+    const targets = Object.entries(engine.state?.conflicts || {}).map(([fileId, conflict]) => ({ fileId, path: conflict.path }));
+    if (!targets.length) {
+      const active = await sdk.rpc('editor.getActiveDocument').catch(() => null);
+      if (active?.path) {
+        const page = await sdk.rpc('net.request', { path: '/sync/changes?cursor=&limit=200', method: 'GET' }).catch(() => null);
+        const changes = page?.status === 200 ? (page.data?.changes || []) : [];
+        const normalized = String(active.path).replace(/\\/g, '/');
+        const match = changes.find((change) => change.path && (normalized.endsWith(change.path) || change.path.endsWith(normalized.split('/').pop())));
+        if (match) targets.push({ fileId: match.fileId, path: active.path });
+      }
+    }
+    for (const target of targets) {
+      const response = await sdk.rpc('net.request', { path: `/sync/file/${encodeURIComponent(target.fileId)}`, method: 'GET' }).catch(() => null);
+      if (!response || response.status !== 200 || typeof response.data?.content !== 'string') continue;
+      await sdk.rpc('editor.showDiff', {
+        path: target.path,
+        content: response.data.content,
+        label: `云端版本对比：${target.path}`,
+        rev: response.data.rev,
+      }).catch(() => {});
+    }
+  });
   await sdk.commands.register('sync.conflicts.next', 'MokiDown：更多同步冲突', () => { offset += 100; return publish(); });
   await sdk.commands.register('sync.resolve', 'MokiDown：处理同步冲突', async (args) => {
     if (!args || !['local', 'remote'].includes(args.choice) || !engine.state?.conflicts[args.fileId]) return;
