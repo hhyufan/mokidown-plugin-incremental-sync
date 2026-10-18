@@ -59,8 +59,17 @@ definePlugin(async (sdk) => {
             fetchedAt: stamp,
           };
           const list = await sdk.rpc('net.request', { path: `/sync/file/${encodeURIComponent(activeRecord[0])}/versions`, method: 'GET' }).catch(() => null);
-          const versions = Array.isArray(list?.data?.versions) ? list.data.versions : [];
-          const emptyText = !list ? '无法连接同步服务' : list.status === 200 ? '暂无历史' : `云端历史不可用（HTTP ${list.status}）`;
+          let versions = Array.isArray(list?.data?.versions) ? list.data.versions : [];
+          let emptyText = !list ? '无法连接同步服务' : list.status === 200 ? '暂无历史' : `云端历史不可用（HTTP ${list.status}）`;
+          // Old servers have no /versions route: fall back to the current
+          // revision so the panel still shows the cloud version.
+          if (list?.status === 404) {
+            const current = await sdk.rpc('net.request', { path: `/sync/file/${encodeURIComponent(activeRecord[0])}`, method: 'GET' }).catch(() => null);
+            if (current?.status === 200 && Number.isSafeInteger(current.data?.rev)) {
+              versions = [{ rev: current.data.rev, checksum: current.data.checksum, size: current.data.size, updatedAt: current.data.updatedAt }];
+              emptyText = '暂无历史';
+            }
+          }
           await sdk.versions.set({
             path: activeDocument.relativePath,
             title: '云端历史',
