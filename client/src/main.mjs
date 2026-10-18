@@ -29,7 +29,13 @@ definePlugin(async (sdk) => {
             ? '已同步'
             : '同步中...';
     const tone = update.error ? 'error' : conflicts.length ? 'warning' : text === '已同步' ? 'success' : 'info';
-    return sdk.statusBar.set('sync.status', { text, title: `${update.phase}`, icon: CLOUD_ICON, tone, busy, actions }).catch(() => {});
+    void sdk.tasks.set('sync-pending', {
+      title: '同步待处理',
+      status: conflicts.length ? `${conflicts.length} 个文件有云端版本` : '点击处理同步',
+      tone: 'warning',
+      command: 'sync.now',
+    }).catch(() => {});
+    return sdk.statusBar.set('sync.status', { text, title: `${update.phase}`, icon: CLOUD_ICON, tone, busy }).catch(() => {});
   };
   engine = new IncrementalSync(sdk.rpc, (next) => { update = next; void publish(); });
   sdk.onDispose(() => engine.stop());
