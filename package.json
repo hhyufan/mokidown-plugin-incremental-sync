@@ -1,0 +1,25 @@
+{
+  "name": "mokidown-sync-server",
+  "version": "1.0.0",
+  "description": "One-command sync server + public tunnel for the MokiDown incremental-sync plugin",
+  "type": "module",
+  "bin": {
+    "mokidown-sync": "bin/cli.mjs"
+  },
+  "files": [
+    "bin",
+    "server"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/hhyufan/mokidown-plugin-incremental-sync.git"
+  },
+  "scripts": {
+    "start": "node bin/cli.mjs",
+    "smoke": "node server/smoke-test.mjs"
+  }
+}

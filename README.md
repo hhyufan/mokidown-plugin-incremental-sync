@@ -1,4 +1,28 @@
-﻿# MokiDown 增量同步插件
+﻿## 一条命令部署（推荐）
+
+```bash
+npx github:hhyufan/mokidown-plugin-incremental-sync
+```
+
+它会自动：
+
+1. 生成/复用访问密钥（`~/.mokidown-sync/token`）；
+2. 启动同步服务与内置代理（本机回环）；
+3. 按需下载 `cloudflared` 并开一条公网隧道；
+4. 打印可填进插件的 `endpoint` 与 `credential`：
+
+```
+MokiDown sync server is running
+  Endpoint : https://xxxx.trycloudflare.com
+  Token    : 0f3c...
+
+Fill these in Settings → Plugins → Incremental Sync:
+  endpoint  = https://xxxx.trycloudflare.com
+  credential= 0f3c...
+```
+
+按 `Ctrl+C` 停止并关闭隧道。可选参数：`--port`、`--proxy-port`、`--token`、`--no-tunnel`。
+# MokiDown 增量同步插件
 
 把已保存的文档增量同步到**你自己的服务器和数据库**，无需注册登录。
 
@@ -99,3 +123,4 @@ node server/smoke-test.mjs
 | `PROXY_ALLOW_PATHS` | 允许的路径前缀，默认 `/capabilities,/sync/` |
 
 自测里会并发打 12 个请求（限流设为 5），并访问 `/api/secrets` 断言 404。
+
