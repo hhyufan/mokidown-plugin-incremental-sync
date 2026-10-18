@@ -163,10 +163,7 @@ const syncServer = http.createServer((req, res) => {
         const version = history.find((entry) => entry.rev === rev);
         return version ? json(res, 200, { ...version, fileId }) : json(res, 404, { message: 'Not found' });
       }
-      return json(res, 200, {
-        fileId,
-        versions: history.slice().reverse().map(({ content, ...rest }) => ({ ...rest, fileId })),
-      });
+      // When a file predates version tracking, expose its current revision so\n      // the history list is never empty for an existing document.\n      const current = db.files[fileId];\n      const versions = history.slice().reverse().map(({ content, ...rest }) => ({ ...rest, fileId }));\n      if (!versions.length && current) {\n        versions.push({\n          fileId,\n          rev: current.rev,\n          checksum: current.checksum,\n          size: current.size,\n          compressed: current.compressed,\n          updatedAt: current.updatedAt,\n        });\n      }\n      return json(res, 200, { fileId, versions });
     }
 
     const match = url.pathname.match(/^\/sync\/file\/(.+)$/);

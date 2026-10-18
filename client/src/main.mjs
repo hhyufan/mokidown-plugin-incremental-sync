@@ -60,9 +60,11 @@ definePlugin(async (sdk) => {
           };
           const list = await sdk.rpc('net.request', { path: `/sync/file/${encodeURIComponent(activeRecord[0])}/versions`, method: 'GET' }).catch(() => null);
           const versions = Array.isArray(list?.data?.versions) ? list.data.versions : [];
+          const emptyText = !list ? '无法连接同步服务' : list.status === 200 ? '暂无历史' : `云端历史不可用（HTTP ${list.status}）`;
           await sdk.versions.set({
             path: activeDocument.relativePath,
             title: '云端历史',
+            emptyText,
             items: versions.map((version) => ({
               id: `${activeRecord[0]}:${version.rev}`,
               label: `rev ${version.rev}`,
