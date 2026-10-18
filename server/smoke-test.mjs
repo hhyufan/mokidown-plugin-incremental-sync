@@ -13,7 +13,7 @@ const TOKEN = crypto.randomBytes(24).toString('hex');
 const PORT = 4319;
 const PROXY_PORT = 4320;
 const DATA_DIR = '.data-test';
-const env = { ...process.env, SYNC_TOKEN: TOKEN, PORT: String(PORT), PROXY_PORT: String(PROXY_PORT), DATA_DIR };
+const env = { ...process.env, SYNC_TOKEN: TOKEN, PORT: String(PORT), PROXY_PORT: String(PROXY_PORT), DATA_DIR, PROXY_RATE_LIMIT: '5', PROXY_RATE_WINDOW_MS: '60000' };
 
 const server = spawn(process.execPath, ['server/index.mjs'], { env, stdio: 'inherit' });
 const proxy = spawn(process.execPath, ['server/proxy.mjs'], { env, stdio: 'inherit' });
@@ -59,6 +59,12 @@ try {
   const direct = await fetch(`http://127.0.0.1:${PORT}/sync/file/${fileId}`);
   const roundTrip = pulled.data?.content === content;
 
+  // Rate limiting: this run allows only 5 requests per window, and any path
+  // outside /capabilities + /sync/ must be rejected by the proxy.
+  const burst = await Promise.all(Array.from({ length: 12 }, () => fetch(`http://127.0.0.1:${PROXY_PORT}/capabilities`)));
+  const throttled = burst.filter((response) => response.status === 429).length;
+  const blockedPath = await fetch(`http://127.0.0.1:${PROXY_PORT}/api/secrets`);
+
   console.log(JSON.stringify({
     tokenLength: TOKEN.length,
     capabilities: capabilities.status,
@@ -68,8 +74,10 @@ try {
     download: pulled.status,
     roundTrip,
     directWithoutToken: direct.status,
+    throttled,
+    blockedPath: blockedPath.status,
   }, null, 2));
-  if (!roundTrip || put.status !== 200 || pulled.status !== 200 || direct.status !== 401) {
+  if (!roundTrip || put.status !== 200 || pulled.status !== 200 || direct.status !== 401 || throttled === 0 || blockedPath.status !== 404) {
     process.exitCode = 1;
   }
 } finally {

@@ -82,3 +82,20 @@ node server/smoke-test.mjs
 ### 公网部署
 
 把 `server/` 放到任意 Node 主机（VPS / Docker / systemd），前面用 Nginx 或 Caddy 做 TLS 终止，凭据走 `SYNC_TOKEN`；插件端只需填公网地址。
+
+### 内置代理的安全限制
+
+`server/proxy.mjs` 是插件内置的反向代理，客户端只连它：
+
+- **固定上游**：只能转发到 `TARGET`（默认 `127.0.0.1:4319`），插件无法指定其他域名/端口；
+- **路径白名单**：只有 `/capabilities` 和 `/sync/*` 会转发，其他路径直接 404；
+- **密钥注入**：`SYNC_TOKEN` 由代理加到 `Authorization: Bearer`，客户端不持有密钥；
+- **节流**：按客户端 IP 的令牌桶，超出返回 `429` + `Retry-After`。
+
+| 环境变量 | 说明 |
+| --- | --- |
+| `PROXY_RATE_LIMIT` | 每个窗口允许的请求数，默认 `60` |
+| `PROXY_RATE_WINDOW_MS` | 窗口长度（毫秒），默认 `60000` |
+| `PROXY_ALLOW_PATHS` | 允许的路径前缀，默认 `/capabilities,/sync/` |
+
+自测里会并发打 12 个请求（限流设为 5），并访问 `/api/secrets` 断言 404。
