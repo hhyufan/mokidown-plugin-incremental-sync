@@ -79,7 +79,18 @@ const syncServer = http.createServer((req, res) => {
       try { body = JSON.parse(raw); } catch { return json(res, 400, { message: 'Invalid JSON' }); }
     }
     if (url.pathname === '/capabilities') {
-      return json(res, 200, { name: 'mokidown-sync', version: '1.0.0', capabilities: ['incremental-sync'] });
+      return json(res, 200, {
+        service: 'mokidown-plugin-server',
+        instanceId: 'mokidown-sync-local',
+        namespace: 'default',
+        name: 'mokidown-sync',
+        version: '1.0.0',
+        plugins: [
+          { id: 'cloud-sync', protocolVersion: 3 },
+          { id: 'mokidown.incremental-sync', protocolVersion: 1 },
+        ],
+        capabilities: ['incremental-sync', 'cloud-sync-v3'],
+      });
     }
     const auth = (req.headers.authorization || '') === `Bearer ${TOKEN}`;
     if (!auth) return json(res, 401, { message: 'Unauthorized' });

@@ -64,7 +64,18 @@ const server = http.createServer((req, res) => {
     }
 
     if (url.pathname === '/capabilities') {
-      return send(res, 200, { name: 'mokidown-sync', version: '1.0.0', capabilities: ['incremental-sync'] });
+      return send(res, 200, {
+        service: 'mokidown-plugin-server',
+        instanceId: 'mokidown-sync-local',
+        namespace: 'default',
+        name: 'mokidown-sync',
+        version: '1.0.0',
+        plugins: [
+          { id: 'cloud-sync', protocolVersion: 3 },
+          { id: 'mokidown.incremental-sync', protocolVersion: 1 },
+        ],
+        capabilities: ['incremental-sync', 'cloud-sync-v3'],
+      });
     }
     if (!authorized(req)) return send(res, 401, { message: 'Unauthorized' });
 
