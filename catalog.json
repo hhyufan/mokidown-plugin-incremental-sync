@@ -3,8 +3,23 @@
     "id": "mokidown.incremental-sync",
     "name": "MokiDown 增量同步服务",
     "version": "1.4.2",
-    "url": "https://github.com/hhyufan/mokidown/releases/download/service-plugins-v1.4.2/mokidown.incremental-sync-1.4.2-de19759ed7c16b3f.mokiplugin.json",
-    "sha256": "de19759ed7c16b3fe92ca50a65299371c3ad4aa21911c2f33a2b95c5a83cd888",
-    "checksumMode": "canonical-json-v1"
+    "url": "https://github.com/hhyufan/mokidown-plugin-incremental-sync/releases/download/v1.4.2/mokidown.incremental-sync-1.4.2.mokiplugin.json",
+    "sha256": "bc9c043061ac1a616eb8fb563d948fe64313fa52161d298d9ed1ec413d74c66f",
+    "permissions": [
+      "workspace.read",
+      "workspace.write",
+      "storage",
+      "network",
+      "commands",
+      "ui.statusBar",
+      "ui.fileIcons"
+    ],
+    "fileExtensions": [
+      "md",
+      "markdown",
+      "txt"
+    ],
+    "description": "Keep your saved documents in sync with your own server and database.",
+    "descriptionZh": "将已保存的文档增量同步到自己的服务器和数据库，无需注册登录。"
   }
 ]
