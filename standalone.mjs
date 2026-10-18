@@ -174,20 +174,18 @@ const syncServer = http.createServer((req, res) => {
       const fileId = decodeURIComponent(match[1]);
       if (req.method === 'PUT') {
         if (!body || typeof body.content !== 'string') return json(res, 400, { message: 'Missing content' });
-        const previous = db.files[fileId];
-        if (previous) {
-          const history = (db.versions[fileId] || []).concat({
-            rev: previous.rev,
-            content: previous.content,
-            checksum: previous.checksum,
-            size: previous.size,
-            compressed: previous.compressed,
-            updatedAt: previous.updatedAt,
-          });
-          db.versions[fileId] = history.slice(-20);
-        }
         db.rev += 1;
         db.files[fileId] = { ...body, fileId, rev: db.rev, updatedAt: Date.now() };
+        // Record every written revision (including this one), newest last.
+        const snapshot = {
+          rev: db.rev,
+          content: body.content,
+          checksum: body.checksum,
+          size: body.size,
+          compressed: body.compressed,
+          updatedAt: db.files[fileId].updatedAt,
+        };
+        db.versions[fileId] = ((db.versions[fileId] || []).concat(snapshot)).slice(-20);
         save();
         return json(res, 200, { fileId, rev: db.rev });
       }
