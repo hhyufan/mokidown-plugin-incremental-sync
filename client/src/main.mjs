@@ -12,12 +12,14 @@ const BADGES = { success: cloud('#3fb950'), warning: cloud('#d29922'), error: cl
 
 definePlugin(async (sdk) => {
   let engine, timer, scheduled, publishing = false, again = false, versionTarget = null;
+  // Storage keys only allow [a-zA-Z0-9_.-], so normalise the file id.
+  const historyKey = (fileId) => 'history.' + String(fileId).replace(/[^a-zA-Z0-9_-]/g, '_');
   // Keep a local snapshot history so cloud history works even with servers
   // that do not store revisions (and gives us the content for diffs).
   const recordSnapshot = async ({ fileId, rev, checksum, size, content }) => {
     if (!fileId || !Number.isSafeInteger(rev) || typeof content !== 'string') return;
     if (content.length > 512 * 1024) return;
-    const key = `history:${fileId}`;
+    const key = historyKey(fileId);
     const stored = await sdk.storage.get(key).catch(() => null);
     const list = Array.isArray(stored) ? stored : [];
     if (list.some((entry) => entry.rev === rev)) return;
@@ -66,7 +68,7 @@ definePlugin(async (sdk) => {
         if (shouldFetch) {
           versionTarget = { fileId: activeRecord[0], path: activeDocument.relativePath, rev: activeRecord[1].rev, fetchedAt: stamp };
           // Prefer the plugin's own snapshot history (old servers lack /versions).
-          const storedKey = `history:${activeRecord[0]}`;
+          const storedKey = historyKey(activeRecord[0]);
           const stored = await sdk.storage.get(storedKey).catch(() => null);
           let items = [];
           let emptyText = '暂无历史';
@@ -122,7 +124,7 @@ definePlugin(async (sdk) => {
   sdk.on('versionSelected', async (payload) => {
     if (!versionTarget || !Number.isSafeInteger(payload?.rev)) return;
     // Prefer the cached snapshot (has content, works with old servers).
-    const storedKey = `history:${versionTarget.fileId}`;
+    const storedKey = historyKey(versionTarget.fileId);
     const stored = await sdk.storage.get(storedKey).catch(() => null);
     const cached = Array.isArray(stored) ? stored.find((entry) => entry.rev === payload.rev) : null;
     if (cached && typeof cached.content === 'string') {
