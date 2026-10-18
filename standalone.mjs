@@ -8,12 +8,13 @@
  * + a cloudflared quick tunnel, then prints the endpoint and token.
  *
  * Flags: --port 4319 --proxy-port 4320 --token <hex> --no-tunnel
+ *        --status (print the last running instance) · --stop (kill local instances)
  */
 import http from 'node:http';
 import { createServer } from 'node:net';
 import crypto from 'node:crypto';
-import { spawn } from 'node:child_process';
-import { chmodSync, createWriteStream, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawn } from 'node:child_process';
+import { chmodSync, createWriteStream, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -31,8 +32,52 @@ const HOME = path.join(os.homedir(), '.mokidown-sync');
 const DATA_DIR = path.join(HOME, 'data');
 const TOOLS_DIR = path.join(HOME, 'tools');
 const TOKEN_FILE = path.join(HOME, 'token');
+const STATUS_FILE = path.join(HOME, 'current.json');
 mkdirSync(DATA_DIR, { recursive: true });
 mkdirSync(TOOLS_DIR, { recursive: true });
+
+/** Kill listeners left behind by earlier runs (Windows: taskkill by PID). */
+function stopLocalInstances() {
+  if (process.platform !== 'win32') {
+    console.log('stop the foreground window with Ctrl+C (or: pkill -f mokidown-sync.mjs)');
+    return;
+  }
+  let output = '';
+  try {
+    output = execFileSync('netstat', ['-ano'], { encoding: 'utf8' });
+  } catch {
+    return;
+  }
+  const pids = new Set();
+  for (const line of output.split(/\r?\n/)) {
+    const match = line.match(/:(\d+)\s+\S+\s+LISTENING\s+(\d+)/);
+    if (!match) continue;
+    const port = Number(match[1]);
+    if (![4319, 4320, 4339, 4340, PORT, PROXY_PORT].includes(port)) continue;
+    pids.add(Number(match[2]));
+  }
+  if (!pids.size) {
+    console.log('no local mokidown-sync listener found');
+    return;
+  }
+  for (const pid of pids) {
+    try {
+      execFileSync('taskkill', ['/PID', String(pid), '/F'], { stdio: 'ignore' });
+      console.log(`stopped pid ${pid}`);
+    } catch (error) {
+      console.log(`pid ${pid}: ${error.message}`);
+    }
+  }
+}
+
+if (has('--stop')) {
+  stopLocalInstances();
+  process.exit(0);
+}
+if (has('--status')) {
+  console.log(existsSync(STATUS_FILE) ? readFileSync(STATUS_FILE, 'utf8') : 'no running mokidown-sync recorded');
+  process.exit(0);
+}
 
 function accessToken() {
   const provided = flag('--token', '');
@@ -204,15 +249,16 @@ async function ensureCloudflared() {
 
 async function main() {
   if (!(await freePort(PORT))) {
-    console.error('\nPort 4319 is already in use — another mokidown-sync is probably running.');
-    console.error('Stop that window (Ctrl+C) or start with --port / --proxy-port.');
+    console.error(`\nPort ${PORT} is already in use — another mokidown-sync is probably running.`);
+    console.error('Run `node mokidown-sync.mjs --stop`, or start with --port / --proxy-port.');
     process.exit(1);
   }
   if (!(await freePort(PROXY_PORT))) {
-    console.error('\nPort 4320 is already in use — another mokidown-sync is probably running.');
-    console.error('Stop that window (Ctrl+C) or start with --port / --proxy-port.');
+    console.error(`\nPort ${PROXY_PORT} is already in use — another mokidown-sync is probably running.`);
+    console.error('Run `node mokidown-sync.mjs --stop`, or start with --port / --proxy-port.');
     process.exit(1);
   }
+
   await new Promise((resolve) => syncServer.listen(PORT, '127.0.0.1', resolve));
   await new Promise((resolve) => proxyServer.listen(PROXY_PORT, '127.0.0.1', resolve));
   process.stdout.write(`[1/3] sync server :${PORT}, proxy :${PROXY_PORT}\n`);
@@ -240,9 +286,19 @@ async function main() {
   process.stdout.write('Fill these in Settings → Plugins → Incremental Sync:\n');
   process.stdout.write(`  endpoint  = ${endpoint}\n  credential= ${TOKEN}\n`);
   process.stdout.write(`${line}\nCtrl+C to stop.\n`);
+  // Remember the running instance so `--status` can recover its endpoint.
+  writeFileSync(STATUS_FILE, JSON.stringify({
+    endpoint,
+    token: TOKEN,
+    port: PORT,
+    proxyPort: PROXY_PORT,
+    pid: process.pid,
+    startedAt: new Date().toISOString(),
+  }, null, 2));
 
   const shutdown = () => {
     try { tunnel?.kill(); } catch { /* ignore */ }
+    try { unlinkSync(STATUS_FILE); } catch { /* ignore */ }
     syncServer.close();
     proxyServer.close();
     process.exit(0);
