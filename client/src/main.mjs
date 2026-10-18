@@ -11,7 +11,7 @@ const ICONS = { success: check('#3fb950'), warning: warningTriangle('#d29922'), 
 const BADGES = { success: cloud('#3fb950'), warning: cloud('#d29922'), error: cloud('#f85149') };
 
 definePlugin(async (sdk) => {
-  let engine, timer, scheduled, publishing = false, again = false;
+  let engine, timer, scheduled, publishing = false, again = false, versionTarget = null;
   const statusIds = new Set(), presentations = new Map();
   const publish = async () => {
     if (publishing) { again = true; return; }
@@ -42,7 +42,8 @@ definePlugin(async (sdk) => {
       }
       // Extra entry for the open cloud file: open its cloud revisions.
       const activeDocument = documents.find((entry) => entry.active);
-      if (activeDocument?.relativePath && files.some(([, file]) => file.path === activeDocument.relativePath)) {
+      const activeRecord = activeDocument?.relativePath ? files.find(([, file]) => file.path === activeDocument.relativePath) : null;
+      if (activeDocument?.relativePath && activeRecord) {
         const id = 'sync.versions';
         alive.add(id);
         const item = {
@@ -56,6 +57,27 @@ definePlugin(async (sdk) => {
         const key = JSON.stringify(item);
         if (presentations.get(id) !== key) { await sdk.statusBar.set(id, item); presentations.set(id, key); }
         statusIds.add(id);
+        // Sidebar list of cloud revisions for the open file (only when the
+        // open document changes, so polling does not refetch it constantly).
+        if (!versionTarget || versionTarget.path !== activeDocument.relativePath) {
+          versionTarget = { fileId: activeRecord[0], path: activeDocument.relativePath };
+          const list = await sdk.rpc('net.request', { path: `/sync/file/${encodeURIComponent(activeRecord[0])}/versions`, method: 'GET' }).catch(() => null);
+          const versions = Array.isArray(list?.data?.versions) ? list.data.versions : [];
+          await sdk.versions.set({
+            path: activeDocument.relativePath,
+            title: '云端版本',
+            items: versions.map((version) => ({
+              id: `${activeRecord[0]}:${version.rev}`,
+              label: `rev ${version.rev}`,
+              meta: new Date(version.updatedAt || Date.now()).toLocaleString(),
+              rev: version.rev,
+            })),
+          }).catch(() => {});
+        }
+      } else if (versionTarget) {
+        const stale = versionTarget.path;
+        versionTarget = null;
+        await sdk.versions.remove(stale).catch(() => {});
       }
       for (const id of statusIds) if (!alive.has(id)) { await sdk.statusBar.remove(id); statusIds.delete(id); presentations.delete(id); }
       if (conflicts.length) await sdk.fileBadges.set('cloud-conflict', { paths: conflicts.map(([, record]) => record.path), svg: BADGES.warning, title: '同步冲突' });
@@ -68,6 +90,20 @@ definePlugin(async (sdk) => {
   sdk.onDispose(() => { engine.stop(); clearInterval(timer); clearTimeout(scheduled); });
   await sdk.commands.register('sync.now', '立即同步', () => engine.cycle());
   // Show the cloud revisions of the currently open file (cloud files only).
+
+  sdk.on('versionSelected', async (payload) => {
+    if (!versionTarget || !Number.isSafeInteger(payload?.rev)) return;
+    const detail = await sdk.rpc('net.request', { path: `/sync/file/${encodeURIComponent(versionTarget.fileId)}/versions/${payload.rev}`, method: 'GET' }).catch(() => null);
+    if (detail?.status !== 200 || typeof detail.data?.content !== 'string') return;
+    await sdk.rpc('editor.showDiff', {
+      path: versionTarget.path,
+      content: detail.data.content,
+      label: `云端版本 rev ${payload.rev}`,
+      actionLabel: '使用此版本',
+      applyIcon: 'cloud-download',
+      rev: payload.rev,
+    }).catch(() => {});
+  });
   await sdk.commands.register('sync.remote', '查看当前文件云端版本', async (args) => {
     const active = args?.path ? null : await sdk.rpc('editor.getActiveDocument').catch(() => null);
     const targetPath = args?.path || active?.path;
