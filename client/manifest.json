@@ -2,7 +2,7 @@
   "format": "mokidown-extension-v1",
   "id": "mokidown.incremental-sync",
   "name": "MokiDown 增量同步服务",
-  "version": "1.7.0",
+  "version": "1.7.1",
   "permissions": [
     "workspace.read",
     "workspace.write",
@@ -44,5 +44,7 @@
       "save": "保存连接配置",
       "test": "保存并测试连接"
     }
-  }
+  },
+  "description": "Show sync state for the current document and resolve differences inside the editor.",
+  "descriptionZh": "按当前文档显示状态，在编辑器内处理差异并同步到自建服务。"
 }
