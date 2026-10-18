@@ -57,10 +57,20 @@ definePlugin(async (sdk) => {
         const key = JSON.stringify(item);
         if (presentations.get(id) !== key) { await sdk.statusBar.set(id, item); presentations.set(id, key); }
         statusIds.add(id);
-        // Sidebar list of cloud revisions for the open file (only when the
-        // open document changes, so polling does not refetch it constantly).
-        if (!versionTarget || versionTarget.path !== activeDocument.relativePath) {
-          versionTarget = { fileId: activeRecord[0], path: activeDocument.relativePath };
+        // Sidebar list of cloud revisions; refresh when the file or the
+        // cloud revision changes (throttled so polling stays cheap).
+        const stamp = Date.now();
+        const shouldFetch = !versionTarget
+          || versionTarget.path !== activeDocument.relativePath
+          || versionTarget.rev !== activeRecord[1].rev
+          || stamp - (versionTarget.fetchedAt || 0) > 3000;
+        if (shouldFetch) {
+          versionTarget = {
+            fileId: activeRecord[0],
+            path: activeDocument.relativePath,
+            rev: activeRecord[1].rev,
+            fetchedAt: stamp,
+          };
           const list = await sdk.rpc('net.request', { path: `/sync/file/${encodeURIComponent(activeRecord[0])}/versions`, method: 'GET' }).catch(() => null);
           const versions = Array.isArray(list?.data?.versions) ? list.data.versions : [];
           await sdk.versions.set({
