@@ -31,7 +31,7 @@ definePlugin(async (sdk) => {
         alive.add(id);
         const resolved = engine.state.resolutions?.[path];
         const error = engine.fileErrors.get(path);
-        const busy = engine.activePath === path;
+        const busy = engine.running || engine.activePath === path;
         const completed = record && resolved?.fileId === record[0] && resolved.rev === record[1].rev && resolved.checksum === record[1].checksum;
         const text = busy ? '同步中…' : error ? '同步失败' : conflict ? '存在冲突' : '同步完成';
         const tone = busy ? 'info' : error ? 'error' : conflict ? 'warning' : 'success';

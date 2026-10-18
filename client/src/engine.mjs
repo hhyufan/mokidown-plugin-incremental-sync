@@ -171,8 +171,11 @@ export class IncrementalSync {
     return files;
   }
   async cycle() {
-    if (this.running || this.stopped) return;
+    if (this.stopped) return;
+    // A manual click while a cycle is running must not be dropped; queue it.
+    if (this.running) { this.queued = true; return; }
     this.running = true;
+    this.report({ phase: '同步中…', state: this.state });
     try {
       if (!this.state) await this.initialize();
       this.report({ phase: '同步中…', state: this.state });
@@ -195,7 +198,10 @@ export class IncrementalSync {
       }
       this.report({ phase: '已完成增量同步', state: this.state });
     } catch (error) { this.report({ phase: error.message, error: true, state: this.state }); }
-    finally { this.running = false; }
+    finally {
+      this.running = false;
+      if (this.queued) { this.queued = false; void this.cycle(); }
+    }
   }
   async resolve(fileId, choice, options = {}) {
     if (this.running) throw new Error('请等待当前同步结束');
