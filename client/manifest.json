@@ -2,7 +2,7 @@
   "format": "mokidown-extension-v1",
   "id": "mokidown.incremental-sync",
   "name": "MokiDown 增量同步服务",
-  "version": "1.6.4",
+  "version": "1.7.0",
   "permissions": [
     "workspace.read",
     "workspace.write",
@@ -19,5 +19,30 @@
     "markdown",
     "txt"
   ],
-  "entry": "src/main.mjs"
+  "entry": "src/main.mjs",
+  "configuration": {
+    "help": "本机填写 http://127.0.0.1:端口；局域网填写服务器内网 IP；远程填写代理或自建反代的 HTTPS 地址。三种方式使用相同访问密钥。",
+    "fields": [
+      {
+        "key": "endpoint",
+        "type": "url",
+        "label": "服务地址",
+        "placeholder": "http://127.0.0.1:8787"
+      },
+      {
+        "key": "credential",
+        "type": "secret",
+        "label": "访问密钥（留空保留现有密钥）"
+      },
+      {
+        "key": "workspace",
+        "type": "directory",
+        "label": "选择授权目录"
+      }
+    ],
+    "actions": {
+      "save": "保存连接配置",
+      "test": "保存并测试连接"
+    }
+  }
 }
