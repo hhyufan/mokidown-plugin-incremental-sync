@@ -33,7 +33,7 @@ definePlugin(async (sdk) => {
       title: '同步待处理',
       status: conflicts.length ? `${conflicts.length} 个文件有云端版本` : '点击处理同步',
       tone: 'warning',
-      command: 'sync.now',
+      command: 'sync.handle',
     }).catch(() => {});
     return sdk.statusBar.set('sync.status', { text, title: `${update.phase}`, icon: CLOUD_ICON, tone, busy }).catch(() => {});
   };
