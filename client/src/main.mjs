@@ -33,7 +33,7 @@ definePlugin(async (sdk) => {
         const error = engine.fileErrors.get(path);
         const busy = engine.activePath === path;
         const completed = record && resolved?.fileId === record[0] && resolved.rev === record[1].rev && resolved.checksum === record[1].checksum;
-        const text = busy ? '同步中…' : error ? '同步失败' : conflict ? '存在冲突' : '已同步';
+        const text = busy ? '同步中…' : error ? '同步失败' : conflict ? '存在冲突' : '同步完成';
         const tone = busy ? 'info' : error ? 'error' : conflict ? 'warning' : 'success';
         const item = { documentId: document.id, text, title: error || `${document.name} · ${text}`, icon: ICONS[tone], tone, busy, command: conflict ? 'sync.handle' : 'sync.now', args: { documentId: document.id, path } };
         const key = JSON.stringify(item);
