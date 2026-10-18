@@ -67,6 +67,8 @@ definePlugin(async (sdk) => {
         path: target.path,
         content: response.data.content,
         label: `云端版本对比：${target.path}`,
+        actionLabel: '应用云端版本',
+        applyIcon: 'cloud-download',
         rev: response.data.rev,
       }).catch(() => {});
     }
@@ -87,6 +89,24 @@ definePlugin(async (sdk) => {
     update = { phase: '冲突已处理', state: engine.state };
     await engine.resolve(entry[0], 'remote').catch(() => {});
     await engine.cycle().catch(() => {});
+    await publish();
+  });
+
+  sdk.on('diffClosed', async (payload) => {
+    if (!payload?.path) return;
+    const entry = Object.entries(engine.state?.conflicts || {}).find(([, conflict]) => matchPath(normalize(payload.path), normalize(conflict.path)));
+    if (!entry) return;
+    await engine.resolve(entry[0], 'local').catch(() => {});
+    update = { phase: '冲突已处理', state: engine.state };
+    await publish();
+  });
+
+  sdk.on('diffApplied', async (payload) => {
+    if (!payload?.path) return;
+    const entry = Object.entries(engine.state?.conflicts || {}).find(([, conflict]) => matchPath(normalize(payload.path), normalize(conflict.path)));
+    if (!entry) return;
+    await engine.resolve(entry[0], 'remote').catch(() => {});
+    update = { phase: '冲突已处理', state: engine.state };
     await publish();
   });
 
