@@ -50,6 +50,38 @@ definePlugin(async (sdk) => {
   engine = new IncrementalSync(sdk.rpc, schedule);
   sdk.onDispose(() => { engine.stop(); clearInterval(timer); clearTimeout(scheduled); });
   await sdk.commands.register('sync.now', '立即同步', () => engine.cycle());
+  // Show the cloud revisions of the currently open file (cloud files only).
+  await sdk.commands.register('sync.remote', '查看当前文件云端版本', async () => {
+    const doc = await sdk.rpc('editor.getActiveDocument').catch(() => null);
+    if (!doc?.path) return;
+    const normalize = (value) => String(value || '').replace(/\\/g, '/');
+    const record = Object.entries(engine.state?.files || {}).find(([, file]) => file.path && (
+      normalize(doc.path).endsWith('/' + normalize(file.path))
+      || normalize(file.path).endsWith('/' + normalize(doc.path.split(/[\\/]/).pop()))
+    ));
+    if (!record) {
+      await sdk.tasks.set('sync-remote', { title: '云端版本', status: '当前文件不是云文件', tone: 'info', command: 'sync.remote' }).catch(() => {});
+      return;
+    }
+    const [fileId] = record;
+    const list = await sdk.rpc('net.request', { path: `/sync/file/${encodeURIComponent(fileId)}/versions`, method: 'GET' }).catch(() => null);
+    const versions = Array.isArray(list?.data?.versions) ? list.data.versions : [];
+    const items = [];
+    for (const version of versions.slice(0, 20)) {
+      const detail = await sdk.rpc('net.request', { path: `/sync/file/${encodeURIComponent(fileId)}/versions/${version.rev}`, method: 'GET' }).catch(() => null);
+      if (detail?.status !== 200 || typeof detail.data?.content !== 'string') continue;
+      items.push({
+        id: `${fileId}:${version.rev}`,
+        rev: version.rev,
+        label: `云端版本 rev ${version.rev}`,
+        meta: new Date(version.updatedAt || Date.now()).toLocaleString(),
+        content: detail.data.content,
+        actionLabel: '使用此版本',
+        applyIcon: 'cloud-download',
+      });
+    }
+    await sdk.rpc('editor.showVersions', { path: doc.path, title: `云端版本 · ${doc.name}`, items }).catch(() => {});
+  });
   await sdk.commands.register('sync.handle', '处理当前文件差异', async (args) => {
     if (!engine.state) return;
     const documents = await sdk.editor.listDocuments();

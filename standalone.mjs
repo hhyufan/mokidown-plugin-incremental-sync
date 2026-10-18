@@ -102,7 +102,10 @@ function freePort(port) {
 }
 const TOKEN = accessToken();
 const DB_FILE = path.join(DATA_DIR, 'documents.json');
-const db = existsSync(DB_FILE) ? JSON.parse(readFileSync(DB_FILE, 'utf8')) : { rev: 0, files: {} };
+const stored = existsSync(DB_FILE) ? JSON.parse(readFileSync(DB_FILE, 'utf8')) : { rev: 0, files: {} };
+// versions: fileId -> [{ rev, content, checksum, size, updatedAt }] (latest 20)
+const db = { rev: 0, files: {}, versions: {}, ...stored };
+if (!db.versions) db.versions = {};
 const save = () => writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
 
 const json = (res, status, body) => {
@@ -150,11 +153,39 @@ const syncServer = http.createServer((req, res) => {
     const auth = (req.headers.authorization || '') === `Bearer ${TOKEN}`;
     if (!auth) return json(res, 401, { message: 'Unauthorized' });
 
+    // Version history: list revisions or fetch one revision's content.
+    const versionMatch = url.pathname.match(/^\/sync\/file\/(.+)\/versions(?:\/(\d+))?$/);
+    if (versionMatch && req.method === 'GET') {
+      const fileId = decodeURIComponent(versionMatch[1]);
+      const history = db.versions[fileId] || [];
+      if (versionMatch[2]) {
+        const rev = Number(versionMatch[2]);
+        const version = history.find((entry) => entry.rev === rev);
+        return version ? json(res, 200, { ...version, fileId }) : json(res, 404, { message: 'Not found' });
+      }
+      return json(res, 200, {
+        fileId,
+        versions: history.slice().reverse().map(({ content, ...rest }) => ({ ...rest, fileId })),
+      });
+    }
+
     const match = url.pathname.match(/^\/sync\/file\/(.+)$/);
     if (match) {
       const fileId = decodeURIComponent(match[1]);
       if (req.method === 'PUT') {
         if (!body || typeof body.content !== 'string') return json(res, 400, { message: 'Missing content' });
+        const previous = db.files[fileId];
+        if (previous) {
+          const history = (db.versions[fileId] || []).concat({
+            rev: previous.rev,
+            content: previous.content,
+            checksum: previous.checksum,
+            size: previous.size,
+            compressed: previous.compressed,
+            updatedAt: previous.updatedAt,
+          });
+          db.versions[fileId] = history.slice(-20);
+        }
         db.rev += 1;
         db.files[fileId] = { ...body, fileId, rev: db.rev, updatedAt: Date.now() };
         save();

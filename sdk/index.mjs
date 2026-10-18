@@ -56,7 +56,7 @@ export function createPluginClient(port, { timeoutMs = 35000 } = {}) {
     fileIcons: { set: (id, item) => rpc('fileIcon.add', { id, ...item }), remove: (id) => rpc('fileIcon.remove', { id }) },
   fileBadges: { set: (id, item) => rpc('fileBadge.add', { id, ...item }), remove: (id) => rpc('fileBadge.remove', { id }) },
   tasks: { set: (id, task) => rpc('task.add', { id, ...task }), remove: (id) => rpc('task.remove', { id }) },
-    editor: { getActiveDocument: () => rpc('editor.getActiveDocument'), listDocuments: () => rpc('editor.listDocuments'), showDiff: (options) => rpc('editor.showDiff', options), reloadDocument: (documentId) => rpc('editor.reloadDocument', { documentId }), applyEdits: (documentId, expectedChecksum, edits) => rpc('editor.applyEdits', { documentId, expectedChecksum, edits }), onDidSave: (callback) => on('didSave', callback), onDidChangeDocuments: (callback) => on('documentsChanged', callback) },
+    editor: { getActiveDocument: () => rpc('editor.getActiveDocument'), listDocuments: () => rpc('editor.listDocuments'), showDiff: (options) => rpc('editor.showDiff', options), showVersions: (options) => rpc('editor.showVersions', options), reloadDocument: (documentId) => rpc('editor.reloadDocument', { documentId }), applyEdits: (documentId, expectedChecksum, edits) => rpc('editor.applyEdits', { documentId, expectedChecksum, edits }), onDidSave: (callback) => on('didSave', callback), onDidChangeDocuments: (callback) => on('documentsChanged', callback) },
     styles: { setMarkdown: (id, css) => rpc('styles.set', { id, target: 'markdown', css }), remove: (id) => rpc('styles.remove', { id }) },
     on, onDispose: (callback) => { if (disposed) callback(); else cleanup.push(callback); return callback; },
     dispose: () => {
