@@ -54,6 +54,14 @@ const server = http.createServer((req, res) => {
   const client = req.socket.remoteAddress || 'unknown';
   const url = new URL(req.url, 'http://localhost');
 
+  if (TOKEN) {
+    const provided = (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+    if (provided !== TOKEN) {
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ message: 'Unauthorized' }));
+      return;
+    }
+  }
   if (!allowedPath(url.pathname)) {
     res.writeHead(404, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ message: 'Not found' }));

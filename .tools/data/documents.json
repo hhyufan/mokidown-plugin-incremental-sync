@@ -1,0 +1,37 @@
+{
+  "rev": 2,
+  "files": {
+    "e2e-doc": {
+      "fileName": "e2e.md",
+      "originalPath": "notes/e2e.md",
+      "source": "smoke-test",
+      "content": "# 全链路测试\n\n经反向代理上传，再由服务器读回。\n",
+      "compressed": false,
+      "size": 68,
+      "encoding": "utf8",
+      "lineEnding": "LF",
+      "checksum": "77a8073959c53619091fc8202222ce521f15a1ebc931aa41b9aa9e79136c9eae",
+      "baseRev": 0,
+      "mutationId": "bbf30953-cb79-4627-b99f-837c4f7425ed",
+      "fileId": "e2e-doc",
+      "rev": 1,
+      "updatedAt": 1792300477777
+    },
+    "public-1792300569240": {
+      "fileName": "public-test.md",
+      "originalPath": "notes/public-test.md",
+      "source": "public-test",
+      "content": "# 公网同步测试\n\n经 Cloudflare 隧道上传，再从服务器下载。\n",
+      "compressed": false,
+      "size": 77,
+      "encoding": "utf8",
+      "lineEnding": "LF",
+      "checksum": "5e70d1d256aaa71eca40f75963da8eb7d6a540544365fa3f8ba003aa06c8d561",
+      "baseRev": 0,
+      "mutationId": "22c27dbb-ecc8-477b-93b2-72968cc6efb8",
+      "fileId": "public-1792300569240",
+      "rev": 2,
+      "updatedAt": 1792300570851
+    }
+  }
+}

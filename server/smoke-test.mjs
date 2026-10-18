@@ -19,10 +19,10 @@ const server = spawn(process.execPath, ['server/index.mjs'], { env, stdio: 'inhe
 const proxy = spawn(process.execPath, ['server/proxy.mjs'], { env, stdio: 'inherit' });
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-async function waitFor(url, attempts = 40) {
+async function waitFor(url, attempts = 40, token) {
   for (let i = 0; i < attempts; i += 1) {
     try {
-      const res = await fetch(url);
+      const res = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
       if (res.ok) return true;
     } catch { /* not ready yet */ }
     await sleep(100);
@@ -30,7 +30,7 @@ async function waitFor(url, attempts = 40) {
   return false;
 }
 
-async function request(method, path, body, token) {
+async function request(method, path, body, token = TOKEN) {
   const res = await fetch(`http://127.0.0.1:${PROXY_PORT}${path}`, {
     method,
     headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
@@ -42,7 +42,7 @@ async function request(method, path, body, token) {
 }
 
 try {
-  const ready = await waitFor(`http://127.0.0.1:${PROXY_PORT}/capabilities`);
+  const ready = await waitFor(`http://127.0.0.1:${PROXY_PORT}/capabilities`, 40, TOKEN);
   if (!ready) throw new Error('proxy/server did not become ready');
 
   const content = '# 全链路测试\n\n经反向代理上传，再由服务器读回。\n';
@@ -61,9 +61,13 @@ try {
 
   // Rate limiting: this run allows only 5 requests per window, and any path
   // outside /capabilities + /sync/ must be rejected by the proxy.
-  const burst = await Promise.all(Array.from({ length: 12 }, () => fetch(`http://127.0.0.1:${PROXY_PORT}/capabilities`)));
+  const auth = { Authorization: `Bearer ${TOKEN}` };
+  const burst = await Promise.all(
+    Array.from({ length: 12 }, () => fetch(`http://127.0.0.1:${PROXY_PORT}/capabilities`, { headers: auth })),
+  );
   const throttled = burst.filter((response) => response.status === 429).length;
-  const blockedPath = await fetch(`http://127.0.0.1:${PROXY_PORT}/api/secrets`);
+  const blockedPath = await fetch(`http://127.0.0.1:${PROXY_PORT}/api/secrets`, { headers: auth });
+  const proxyWithoutToken = await fetch(`http://127.0.0.1:${PROXY_PORT}/sync/manifest`);
 
   console.log(JSON.stringify({
     tokenLength: TOKEN.length,
@@ -76,8 +80,9 @@ try {
     directWithoutToken: direct.status,
     throttled,
     blockedPath: blockedPath.status,
+    proxyWithoutToken: proxyWithoutToken.status,
   }, null, 2));
-  if (!roundTrip || put.status !== 200 || pulled.status !== 200 || direct.status !== 401 || throttled === 0 || blockedPath.status !== 404) {
+  if (!roundTrip || put.status !== 200 || pulled.status !== 200 || direct.status !== 401 || throttled === 0 || blockedPath.status !== 404 || proxyWithoutToken.status !== 401) {
     process.exitCode = 1;
   }
 } finally {
