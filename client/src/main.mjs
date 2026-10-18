@@ -90,6 +90,15 @@ definePlugin(async (sdk) => {
     await publish();
   });
 
+  sdk.on('diffResolved', async (payload) => {
+    if (!payload?.path) return;
+    const entry = Object.entries(engine.state?.conflicts || {}).find(([, conflict]) => matchPath(normalize(payload.path), normalize(conflict.path)));
+    if (!entry) return;
+    await engine.resolve(entry[0], payload.choice === 'remote' ? 'remote' : 'local').catch(() => {});
+    update = { phase: '冲突已处理', state: engine.state };
+    await publish();
+  });
+
   sdk.editor.onDidSave(() => engine.cycle());
   await publish();
   const timer = setInterval(() => engine.cycle(), 20000);
