@@ -2,7 +2,7 @@
   "format": "mokidown-extension-v1",
   "id": "mokidown.incremental-sync",
   "name": "MokiDown 增量同步服务",
-  "version": "1.7.6",
+  "version": "1.7.7",
   "permissions": [
     "workspace.read",
     "workspace.write",

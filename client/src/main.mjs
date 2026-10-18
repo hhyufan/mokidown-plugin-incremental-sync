@@ -44,19 +44,6 @@ definePlugin(async (sdk) => {
       const activeDocument = documents.find((entry) => entry.active);
       const activeRecord = activeDocument?.relativePath ? files.find(([, file]) => file.path === activeDocument.relativePath) : null;
       if (activeDocument?.relativePath && activeRecord) {
-        const id = 'sync.versions';
-        alive.add(id);
-        const item = {
-          text: '云端历史',
-          title: `${activeDocument.name} · 查看云端版本`,
-          icon: ICONS.info,
-          tone: 'info',
-          command: 'sync.remote',
-          args: { path: activeDocument.relativePath },
-        };
-        const key = JSON.stringify(item);
-        if (presentations.get(id) !== key) { await sdk.statusBar.set(id, item); presentations.set(id, key); }
-        statusIds.add(id);
         // Sidebar list of cloud revisions; refresh when the file or the
         // cloud revision changes (throttled so polling stays cheap).
         const stamp = Date.now();
