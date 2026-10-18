@@ -1,0 +1,10 @@
+{
+  "host": "127.0.0.1",
+  "port": 8787,
+  "basePath": "",
+  "instanceId": "",
+  "plugins": ["cloud-sync"],
+  "accessKeys": [{ "key": "", "namespace": "default" }],
+  "corsOrigins": ["tauri://localhost", "http://tauri.localhost", "https://tauri.localhost"],
+  "database": { "type": "sqlite", "filename": "data/sync.sqlite" }
+}

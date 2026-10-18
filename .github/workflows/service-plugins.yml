@@ -1,0 +1,49 @@
+name: Service plugins
+on:
+  push:
+    tags: ['service-plugins-v*']
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --legacy-peer-deps
+      - run: npm ci --prefix services/sync-server
+      - run: npm run check:extensions
+      - run: node --test scripts/plugin-package.test.mjs scripts/plugin-sdk.test.mjs
+      - run: npm run test:service-plugins
+      - run: npm run build:service-plugins
+      - run: git diff --exit-code -- plugins/catalog.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: service-plugin-deployment
+          path: releases/service-plugins/
+      - name: Publish immutable release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          version=$(node -p "JSON.parse(require('fs').readFileSync('plugins/cloud-sync/manifest.json')).version")
+          tag="service-plugins-v${version}"
+          if [[ "$GITHUB_EVENT_NAME" == push && "$GITHUB_REF_NAME" != "$tag" ]]; then
+            echo 'Tag does not match plugin version' >&2
+            exit 1
+          fi
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo 'Release already exists; increment the plugin version instead of replacing assets.' >&2
+            exit 1
+          fi
+          assets=(releases/service-plugins/SHA256SUMS)
+          while read -r digest file; do assets+=("releases/service-plugins/$file"); done < releases/service-plugins/SHA256SUMS
+          gh release create "$tag" "${assets[@]}" --target "$GITHUB_SHA" --latest=false --title "MokiDown service plugins ${version}" --notes-file plugins/README.md
+          if ! gh release view service-plugin-catalog >/dev/null 2>&1; then
+            gh release create service-plugin-catalog --target "$GITHUB_SHA" --prerelease --latest=false --title 'MokiDown service plugin catalog' --notes 'Official service plugin catalog. Plugin implementations are published in versioned releases.'
+          fi
+          gh release upload service-plugin-catalog releases/service-plugins/catalog.json --clobber

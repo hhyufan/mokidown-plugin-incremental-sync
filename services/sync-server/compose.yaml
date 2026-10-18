@@ -1,0 +1,19 @@
+services:
+  sync:
+    build: .
+    restart: unless-stopped
+    init: true
+    ports:
+      - "${MOKIDOWN_BIND_ADDRESS:-127.0.0.1}:${MOKIDOWN_PORT:-8787}:8787"
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8787
+      MOKIDOWN_CONFIG: /app/state/config.json
+    volumes:
+      - sync_state:/app/state
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+volumes:
+  sync_state:

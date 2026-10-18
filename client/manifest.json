@@ -1,0 +1,21 @@
+{
+  "format": "mokidown-extension-v1",
+  "id": "mokidown.incremental-sync",
+  "name": "MokiDown 增量同步服务",
+  "version": "1.4.2",
+  "entry": "client/main.mjs",
+  "permissions": [
+    "workspace.read",
+    "workspace.write",
+    "storage",
+    "network",
+    "commands",
+    "ui.statusBar",
+    "ui.fileIcons"
+  ],
+  "fileExtensions": [
+    "md",
+    "markdown",
+    "txt"
+  ]
+}

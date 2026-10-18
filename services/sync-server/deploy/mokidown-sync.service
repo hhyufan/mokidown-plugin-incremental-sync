@@ -1,0 +1,22 @@
+[Unit]
+Description=MokiDown plugin API service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=mokidown
+Group=mokidown
+WorkingDirectory=/opt/mokidown-sync
+Environment=MOKIDOWN_CONFIG=/opt/mokidown-sync/config.json
+ExecStart=/usr/bin/node /opt/mokidown-sync/src/index.mjs
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/mokidown-sync/data
+
+[Install]
+WantedBy=multi-user.target

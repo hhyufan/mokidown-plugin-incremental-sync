@@ -1,0 +1,23 @@
+{
+  "name": "@mokidown/plugin-server",
+  "version": "1.0.1",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "start": "node src/index.mjs",
+    "setup": "node scripts/setup.mjs",
+    "check:database": "node scripts/check-database.mjs",
+    "test": "node --test test/*.test.mjs",
+    "tunnel": "node scripts/tunnel.mjs",
+    "migrate:legacy": "node scripts/migrate-legacy.mjs"
+  },
+  "dependencies": {
+    "mongodb": "^6.20.0",
+    "mssql": "^12.7.9",
+    "mysql2": "^3.15.0",
+    "pg": "^8.16.3"
+  }
+}

@@ -1,0 +1,10 @@
+[
+  {
+    "id": "mokidown.incremental-sync",
+    "name": "MokiDown 增量同步服务",
+    "version": "1.4.2",
+    "url": "https://github.com/hhyufan/mokidown/releases/download/service-plugins-v1.4.2/mokidown.incremental-sync-1.4.2-de19759ed7c16b3f.mokiplugin.json",
+    "sha256": "de19759ed7c16b3fe92ca50a65299371c3ad4aa21911c2f33a2b95c5a83cd888",
+    "checksumMode": "canonical-json-v1"
+  }
+]
