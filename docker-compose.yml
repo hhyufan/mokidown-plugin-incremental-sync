@@ -1,0 +1,16 @@
+services:
+  sync:
+    build: .
+    restart: unless-stopped
+    environment:
+      SYNC_TOKEN: ${SYNC_TOKEN:?set SYNC_TOKEN in .env}
+      PROXY_RATE_LIMIT: ${PROXY_RATE_LIMIT:-120}
+      PROXY_RATE_WINDOW_MS: ${PROXY_RATE_WINDOW_MS:-60000}
+    volumes:
+      - sync-data:/data
+    ports:
+      # Bind to loopback only: Caddy/Nginx terminates TLS and proxies to it.
+      - "127.0.0.1:4320:4320"
+
+volumes:
+  sync-data:

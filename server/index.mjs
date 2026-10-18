@@ -43,7 +43,19 @@ function authorized(req) {
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, 'http://localhost');
   const chunks = [];
-  req.on('data', (chunk) => chunks.push(chunk));
+  let received = 0;
+  let aborted = false;
+  req.on('data', (chunk) => {
+    if (aborted) return;
+    received += chunk.length;
+    if (received > 4 * 1024 * 1024) {
+      aborted = true;
+      send(res, 413, { message: 'Request body exceeds 4 MiB' });
+      req.destroy();
+      return;
+    }
+    chunks.push(chunk);
+  });
   req.on('end', () => {
     let body = null;
     const raw = Buffer.concat(chunks).toString('utf8');

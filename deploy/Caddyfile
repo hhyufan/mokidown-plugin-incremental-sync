@@ -1,0 +1,31 @@
+# Caddyfile — TLS termination + reverse proxy to the plugin proxy.
+# Replace sync.example.com with your domain; Caddy obtains a certificate
+# automatically. Only the proxy port (127.0.0.1:4320) is exposed upstream.
+
+sync.example.com {
+	encode zstd gzip
+
+	# The plugin payload is JSON; keep bodies small.
+	request_body {
+		max_size 6MB
+	}
+
+	# Rate limiting at the edge as well (defence in depth).
+	# Requires the caddy-ratelimit plugin; omit this block if not installed.
+	# rate_limit {
+	# 	zone sync {
+	# 		key {remote_host}
+	# 		events 120
+	# 		window 1m
+	# 	}
+	# }
+
+	reverse_proxy 127.0.0.1:4320 {
+		header_up Host {host}
+	}
+
+	log {
+		output file /var/log/caddy/mokidown-sync.log
+		format json
+	}
+}
