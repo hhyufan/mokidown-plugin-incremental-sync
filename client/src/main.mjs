@@ -40,6 +40,23 @@ definePlugin(async (sdk) => {
         if (presentations.get(id) !== key) { await sdk.statusBar.set(id, item); presentations.set(id, key); }
         statusIds.add(id);
       }
+      // Extra entry for the open cloud file: open its cloud revisions.
+      const activeDocument = documents.find((entry) => entry.active);
+      if (activeDocument?.relativePath && files.some(([, file]) => file.path === activeDocument.relativePath)) {
+        const id = 'sync.versions';
+        alive.add(id);
+        const item = {
+          text: '云端版本',
+          title: `${activeDocument.name} · 查看云端版本`,
+          icon: ICONS.info,
+          tone: 'info',
+          command: 'sync.remote',
+          args: { path: activeDocument.relativePath },
+        };
+        const key = JSON.stringify(item);
+        if (presentations.get(id) !== key) { await sdk.statusBar.set(id, item); presentations.set(id, key); }
+        statusIds.add(id);
+      }
       for (const id of statusIds) if (!alive.has(id)) { await sdk.statusBar.remove(id); statusIds.delete(id); presentations.delete(id); }
       if (conflicts.length) await sdk.fileBadges.set('cloud-conflict', { paths: conflicts.map(([, record]) => record.path), svg: BADGES.warning, title: '同步冲突' });
       else await sdk.fileBadges.remove('cloud-conflict');
@@ -51,13 +68,15 @@ definePlugin(async (sdk) => {
   sdk.onDispose(() => { engine.stop(); clearInterval(timer); clearTimeout(scheduled); });
   await sdk.commands.register('sync.now', '立即同步', () => engine.cycle());
   // Show the cloud revisions of the currently open file (cloud files only).
-  await sdk.commands.register('sync.remote', '查看当前文件云端版本', async () => {
-    const doc = await sdk.rpc('editor.getActiveDocument').catch(() => null);
-    if (!doc?.path) return;
+  await sdk.commands.register('sync.remote', '查看当前文件云端版本', async (args) => {
+    const active = args?.path ? null : await sdk.rpc('editor.getActiveDocument').catch(() => null);
+    const targetPath = args?.path || active?.path;
+    if (!targetPath) return;
     const normalize = (value) => String(value || '').replace(/\\/g, '/');
     const record = Object.entries(engine.state?.files || {}).find(([, file]) => file.path && (
-      normalize(doc.path).endsWith('/' + normalize(file.path))
-      || normalize(file.path).endsWith('/' + normalize(doc.path.split(/[\\/]/).pop()))
+      normalize(file.path) === normalize(targetPath)
+      || normalize(targetPath).endsWith('/' + normalize(file.path))
+      || normalize(file.path).endsWith('/' + normalize(targetPath))
     ));
     if (!record) {
       await sdk.tasks.set('sync-remote', { title: '云端版本', status: '当前文件不是云文件', tone: 'info', command: 'sync.remote' }).catch(() => {});
@@ -80,7 +99,11 @@ definePlugin(async (sdk) => {
         applyIcon: 'cloud-download',
       });
     }
-    await sdk.rpc('editor.showVersions', { path: doc.path, title: `云端版本 · ${doc.name}`, items }).catch(() => {});
+    await sdk.rpc('editor.showVersions', {
+      path: targetPath,
+      title: `云端版本 · ${String(targetPath).split(/[\\/]/).pop()}`,
+      items,
+    }).catch(() => {});
   });
   await sdk.commands.register('sync.handle', '处理当前文件差异', async (args) => {
     if (!engine.state) return;
