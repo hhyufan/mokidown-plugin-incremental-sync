@@ -47,7 +47,7 @@ definePlugin(async (sdk) => {
         const id = 'sync.versions';
         alive.add(id);
         const item = {
-          text: '云端版本',
+          text: '云端历史',
           title: `${activeDocument.name} · 查看云端版本`,
           icon: ICONS.info,
           tone: 'info',
@@ -75,7 +75,7 @@ definePlugin(async (sdk) => {
           const versions = Array.isArray(list?.data?.versions) ? list.data.versions : [];
           await sdk.versions.set({
             path: activeDocument.relativePath,
-            title: '云端版本',
+            title: '云端历史',
             items: versions.map((version) => ({
               id: `${activeRecord[0]}:${version.rev}`,
               label: `rev ${version.rev}`,
@@ -101,6 +101,11 @@ definePlugin(async (sdk) => {
   await sdk.commands.register('sync.now', '立即同步', () => engine.cycle());
   // Show the cloud revisions of the currently open file (cloud files only).
 
+
+  sdk.on('versionRefresh', () => {
+    if (versionTarget) versionTarget.fetchedAt = 0;
+    schedule();
+  });
   sdk.on('versionSelected', async (payload) => {
     if (!versionTarget || !Number.isSafeInteger(payload?.rev)) return;
     const detail = await sdk.rpc('net.request', { path: `/sync/file/${encodeURIComponent(versionTarget.fileId)}/versions/${payload.rev}`, method: 'GET' }).catch(() => null);
@@ -108,7 +113,7 @@ definePlugin(async (sdk) => {
     await sdk.rpc('editor.showDiff', {
       path: versionTarget.path,
       content: detail.data.content,
-      label: `云端版本 rev ${payload.rev}`,
+      label: `云端历史 rev ${payload.rev}`,
       actionLabel: '使用此版本',
       applyIcon: 'cloud-download',
       rev: payload.rev,
@@ -125,7 +130,7 @@ definePlugin(async (sdk) => {
       || normalize(file.path).endsWith('/' + normalize(targetPath))
     ));
     if (!record) {
-      await sdk.tasks.set('sync-remote', { title: '云端版本', status: '当前文件不是云文件', tone: 'info', command: 'sync.remote' }).catch(() => {});
+      await sdk.tasks.set('sync-remote', { title: '云端历史', status: '当前文件不是云文件', tone: 'info', command: 'sync.remote' }).catch(() => {});
       return;
     }
     const [fileId] = record;
@@ -138,7 +143,7 @@ definePlugin(async (sdk) => {
       items.push({
         id: `${fileId}:${version.rev}`,
         rev: version.rev,
-        label: `云端版本 rev ${version.rev}`,
+        label: `云端历史 rev ${version.rev}`,
         meta: new Date(version.updatedAt || Date.now()).toLocaleString(),
         content: detail.data.content,
         actionLabel: '使用此版本',
@@ -147,7 +152,7 @@ definePlugin(async (sdk) => {
     }
     await sdk.rpc('editor.showVersions', {
       path: targetPath,
-      title: `云端版本 · ${String(targetPath).split(/[\\/]/).pop()}`,
+      title: `云端历史 · ${String(targetPath).split(/[\\/]/).pop()}`,
       items,
     }).catch(() => {});
   });
