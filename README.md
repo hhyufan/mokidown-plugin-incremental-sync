@@ -45,3 +45,40 @@ https://github.com/hhyufan/mokidown-plugin-incremental-sync/releases/download/v1
 gh release create v1.0.0 mokidown.incremental-sync-1.0.0.mokiplugin.json \
   --title "Incremental Sync v1.0.0" --notes "首个版本"
 ```
+
+## 自建同步服务端（可选）
+
+仓库附带一个零依赖的参考实现，跑起来就能给插件用：
+
+```bash
+# 1. 生成访问密钥
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+
+# 2. 启动同步服务（默认 127.0.0.1:4319）
+SYNC_TOKEN=<上面的密钥> node server/index.mjs
+
+# 3. 启动反向代理（客户端连它，代理注入密钥；默认 127.0.0.1:4320）
+SYNC_TOKEN=<上面的密钥> node server/proxy.mjs
+```
+
+在 MokiDown 插件配置里把 `endpoint` 填成 `http://127.0.0.1:4320` 即可。
+
+| 环境变量 | 说明 |
+| --- | --- |
+| `PORT` | 同步服务端口，默认 `4319` |
+| `SYNC_TOKEN` | Bearer 密钥；留空则不校验 |
+| `DATA_DIR` | 文档存储目录，默认 `./.data` |
+| `TARGET` | 反向代理上游，默认 `http://127.0.0.1:4319` |
+| `PROXY_PORT` | 反向代理端口，默认 `4320` |
+
+### 全链路自测
+
+```bash
+node server/smoke-test.mjs
+```
+
+会随机生成密钥、拉起服务与代理，跑 capabilities → 上传 → 变更 → 下载，并验证无密钥直连返回 401。
+
+### 公网部署
+
+把 `server/` 放到任意 Node 主机（VPS / Docker / systemd），前面用 Nginx 或 Caddy 做 TLS 终止，凭据走 `SYNC_TOKEN`；插件端只需填公网地址。
