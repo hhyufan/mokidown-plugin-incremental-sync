@@ -1,129 +1,83 @@
 import { definePlugin } from '@mokidown/sdk';
-import { IncrementalSync } from './engine.mjs';
+import { IncrementalSync, decodeDocument, sha256 } from './engine.mjs';
 
 const cloud = (color) => `<svg viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2"><path d="M7 18h10a4 4 0 0 0 .6-7.96A6 6 0 0 0 6.2 9.2 4.5 4.5 0 0 0 7 18Z"/></svg>`;
-const CLOUD_OK = cloud('#3fb950');
-const CLOUD_CONFLICT = cloud('#d29922');
-const CLOUD_ERROR = cloud('#f85149');
-
-const normalize = (value) => String(value || '').replace(/\\/g, '/');
-const matchPath = (left, right) => left === right || left.endsWith('/' + right) || right.endsWith('/' + left);
+const check = (color) => `<svg viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
+const cross = (color) => `<svg viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2.4" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>`;
+const warningTriangle = (color) => `<svg viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`;
+// Status icons are the plugin's choice: check = synced, triangle = conflicts, cross = failure.
+const ICONS = { success: check('#3fb950'), warning: warningTriangle('#d29922'), error: cross('#f85149'), info: cloud('currentColor') };
+// File-list badges keep the cloud, colored by state.
+const BADGES = { success: cloud('#3fb950'), warning: cloud('#d29922'), error: cloud('#f85149') };
 
 definePlugin(async (sdk) => {
-  let update = { phase: '就绪' };
-  let engine;
-
+  let engine, timer, scheduled, publishing = false, again = false;
+  const statusIds = new Set(), presentations = new Map();
   const publish = async () => {
-    const conflicts = Object.entries(engine?.state?.conflicts || update.state?.conflicts || {});
-    const active = await sdk.rpc('editor.getActiveDocument').catch(() => null);
-    // Status bar refers to the open document only, not every conflict.
-    const activeConflicts = active?.path
-      ? conflicts.filter(([, conflict]) => matchPath(normalize(active.path), normalize(conflict.path)))
-      : [];
-    const text = update.error
-      ? '同步错误'
-      : activeConflicts.length
-        ? `同步冲突 ${activeConflicts.length}`
-        : update.phase === '就绪'
-          ? '空闲'
-          : /已完成|冲突已处理|无变化/.test(String(update.phase))
-            ? '已同步'
-            : '同步中...';
-    const tone = update.error ? 'error' : activeConflicts.length ? 'warning' : text === '已同步' ? 'success' : 'info';
-
-    // File-list badges: red = failed, yellow = unresolved conflict, green = clean.
-    if (update.error) void sdk.fileBadges.set('cloud-error', { extensions: ['md', 'markdown', 'txt'], svg: CLOUD_ERROR, title: '同步失败' }).catch(() => {});
-    else void sdk.fileBadges.remove('cloud-error').catch(() => {});
-    if (conflicts.length) void sdk.fileBadges.set('cloud-conflict', { paths: conflicts.map(([, conflict]) => conflict.path), svg: CLOUD_CONFLICT, title: '同步冲突未解决' }).catch(() => {});
-    else void sdk.fileBadges.remove('cloud-conflict').catch(() => {});
-    void sdk.fileBadges.set('cloud-ok', { extensions: ['md', 'markdown', 'txt'], svg: CLOUD_OK, title: '已同步' }).catch(() => {});
-
-    if (engine?.state?.conflicts && Object.keys(engine.state.conflicts).length) {
-      void sdk.tasks.set('sync-pending', {
-        title: '同步待处理',
-        status: `${Object.keys(engine.state.conflicts).length} 个文件有云端版本`,
-        tone: 'warning',
-        command: 'sync.handle',
-      }).catch(() => {});
-    } else {
-      void sdk.tasks.remove('sync-pending').catch(() => {});
-    }
-    return sdk.statusBar.set('sync.status', { text, title: `${update.phase}`, icon: CLOUD_OK, tone, busy: engine?.running === true }).catch(() => {});
+    if (publishing) { again = true; return; }
+    publishing = true;
+    try {
+      const documents = await sdk.editor.listDocuments();
+      const alive = new Set();
+      const files = Object.entries(engine?.state?.files || {}).filter(([, file]) => !file.deleted && !file.detached);
+      const conflicts = Object.entries(engine?.state?.conflicts || {});
+      for (const document of documents) {
+        const path = document.relativePath;
+        if (!path) continue;
+        const conflict = conflicts.find(([, record]) => record.path === path);
+        const record = files.find(([, file]) => file.path === path);
+        if (!conflict && !record && engine.activePath !== path) continue;
+        const id = `document.${(await sha256(`${document.id}:${path}`)).slice(0, 32)}`;
+        alive.add(id);
+        const resolved = engine.state.resolutions?.[path];
+        const error = engine.fileErrors.get(path);
+        const busy = engine.activePath === path;
+        const completed = record && resolved?.fileId === record[0] && resolved.rev === record[1].rev && resolved.checksum === record[1].checksum;
+        const text = busy ? '同步中…' : error ? '同步失败' : conflict ? '存在冲突' : '已同步';
+        const tone = busy ? 'info' : error ? 'error' : conflict ? 'warning' : 'success';
+        const item = { documentId: document.id, text, title: error || `${document.name} · ${text}`, icon: ICONS[tone], tone, busy, command: conflict ? 'sync.handle' : 'sync.now', args: { documentId: document.id, path } };
+        const key = JSON.stringify(item);
+        if (presentations.get(id) !== key) { await sdk.statusBar.set(id, item); presentations.set(id, key); }
+        statusIds.add(id);
+      }
+      for (const id of statusIds) if (!alive.has(id)) { await sdk.statusBar.remove(id); statusIds.delete(id); presentations.delete(id); }
+      if (conflicts.length) await sdk.fileBadges.set('cloud-conflict', { paths: conflicts.map(([, record]) => record.path), svg: BADGES.warning, title: '同步冲突' });
+      else await sdk.fileBadges.remove('cloud-conflict');
+      await sdk.fileBadges.set('cloud-ok', { paths: files.filter(([, file]) => !conflicts.some(([, conflict]) => conflict.path === file.path)).map(([, file]) => file.path), svg: BADGES.success, title: '已同步' });
+    } finally { publishing = false; if (again) { again = false; schedule(); } }
   };
-
-  engine = new IncrementalSync(sdk.rpc, (next) => { update = next; void publish(); });
-  sdk.onDispose(() => engine.stop());
-
-  await sdk.commands.register('sync.now', 'MokiDown：立即同步', () => engine.cycle());
-  await sdk.commands.register('sync.handle', 'MokiDown：处理同步差异', async () => {
-    const targets = Object.entries(engine.state?.conflicts || {}).map(([fileId, conflict]) => ({ fileId, path: conflict.path }));
-    if (!targets.length && engine.state?.files) {
-      targets.push(...Object.entries(engine.state.files).filter(([, file]) => !file.deleted).map(([fileId, file]) => ({ fileId, path: file.path })));
-    }
-    for (const target of targets) {
-      const response = await sdk.rpc('net.request', { path: `/sync/file/${encodeURIComponent(target.fileId)}`, method: 'GET' }).catch(() => null);
-      if (!response || response.status !== 200 || typeof response.data?.content !== 'string') continue;
-      await sdk.rpc('editor.showDiff', {
-        path: target.path,
-        content: response.data.content,
-        label: `云端版本对比：${target.path}`,
-        actionLabel: '应用云端版本',
-        applyIcon: 'cloud-download',
-        rev: response.data.rev,
-      }).catch(() => {});
-    }
-  });
-  await sdk.commands.register('sync.resolve', 'MokiDown：处理同步冲突', async (args) => {
-    if (!args || !['local', 'remote'].includes(args.choice) || !engine.state?.conflicts[args.fileId]) return;
-    update = { phase: '处理冲突中…', state: engine.state }; void publish();
-    try { await engine.resolve(args.fileId, args.choice); }
-    catch (error) { update = { phase: error.message, error: true, state: engine.state }; }
-    await publish();
-  });
-
-  // Applying the cloud version from the diff view resolves the conflict remotely.
-  sdk.on('diffApplied', async (payload) => {
-    if (!payload?.remote || !payload.path) return;
-    const entry = Object.entries(engine.state?.conflicts || {}).find(([, conflict]) => matchPath(normalize(payload.path), normalize(conflict.path)));
+  const schedule = () => { if (scheduled || sdk.signal.aborted) return; scheduled = setTimeout(() => { scheduled = null; void publish().catch(console.error); }, 32); };
+  engine = new IncrementalSync(sdk.rpc, schedule);
+  sdk.onDispose(() => { engine.stop(); clearInterval(timer); clearTimeout(scheduled); });
+  await sdk.commands.register('sync.now', '立即同步', () => engine.cycle());
+  await sdk.commands.register('sync.handle', '处理当前文件差异', async (args) => {
+    if (!engine.state) return;
+    const documents = await sdk.editor.listDocuments();
+    const document = args?.documentId ? documents.find((entry) => entry.id === args.documentId) : documents.find((entry) => entry.active);
+    if (!document?.relativePath) return;
+    const entry = Object.entries(engine.state.conflicts).find(([, conflict]) => conflict.path === document.relativePath);
     if (!entry) return;
-    update = { phase: '冲突已处理', state: engine.state };
-    await engine.resolve(entry[0], 'remote').catch(() => {});
-    await engine.cycle().catch(() => {});
-    await publish();
+    const response = await sdk.net.request(`/sync/file/${encodeURIComponent(entry[0])}`);
+    if (response.status !== 200) throw new Error(response.data.message || `HTTP ${response.status}`);
+    const remote = response.data;
+    const content = remote.deleted ? '' : await decodeDocument(remote);
+    await sdk.editor.showDiff({ path: document.path, content, label: `同步差异：${document.name}`, rev: remote.rev, actions: [
+      { id: 'use.local', title: '使用本地', command: 'sync.resolve', args: { fileId: entry[0], choice: 'local', remoteRev: remote.rev } },
+      { id: 'use.remote', title: '使用云端', command: 'sync.resolve', args: { fileId: entry[0], choice: 'remote', remoteRev: remote.rev } },
+      { id: 'use.edits', title: '应用修改', command: 'sync.resolve', args: { fileId: entry[0], choice: 'merged', remoteRev: remote.rev } },
+    ] });
   });
-
-  sdk.on('diffClosed', async (payload) => {
-    if (!payload?.path) return;
-    const entry = Object.entries(engine.state?.conflicts || {}).find(([, conflict]) => matchPath(normalize(payload.path), normalize(conflict.path)));
-    if (!entry) return;
-    for (let i = 0; i < 50 && engine.running; i += 1) await new Promise((resolve) => setTimeout(resolve, 100));
-    await engine.resolve(entry[0], 'local').catch((error) => { update = { phase: error.message, error: true, state: engine.state }; });
-    update = { phase: '冲突已处理', state: engine.state };
+  await sdk.commands.register('sync.resolve', '解决当前文件冲突', async (args) => {
+    if (!args?.document || !['local','remote','merged'].includes(args.choice)) throw new Error('无效的冲突操作');
+    while (engine.running && !sdk.signal.aborted) await new Promise((resolve) => setTimeout(resolve, 50));
+    await engine.resolve(args.fileId, args.choice, { expectedHash: args.document.checksum, expectedRemoteRev: args.remoteRev, content: args.draftContent });
+    await sdk.editor.reloadDocument(args.document.id);
     await publish();
+    return { resolved: true };
   });
-
-  sdk.on('diffApplied', async (payload) => {
-    if (!payload?.path) return;
-    const entry = Object.entries(engine.state?.conflicts || {}).find(([, conflict]) => matchPath(normalize(payload.path), normalize(conflict.path)));
-    if (!entry) return;
-    for (let i = 0; i < 50 && engine.running; i += 1) await new Promise((resolve) => setTimeout(resolve, 100));
-    await engine.resolve(entry[0], 'remote').catch((error) => { update = { phase: error.message, error: true, state: engine.state }; });
-    update = { phase: '冲突已处理', state: engine.state };
-    await publish();
-  });
-
-  sdk.on('diffResolved', async (payload) => {
-    if (!payload?.path) return;
-    const entry = Object.entries(engine.state?.conflicts || {}).find(([, conflict]) => matchPath(normalize(payload.path), normalize(conflict.path)));
-    if (!entry) return;
-    await engine.resolve(entry[0], payload.choice === 'remote' ? 'remote' : 'local').catch(() => {});
-    update = { phase: '冲突已处理', state: engine.state };
-    await publish();
-  });
-
+  sdk.editor.onDidChangeDocuments(schedule);
   sdk.editor.onDidSave(() => engine.cycle());
-  await publish();
-  const timer = setInterval(() => engine.cycle(), 20000);
-  sdk.onDispose(() => clearInterval(timer));
+  timer = setInterval(() => engine.cycle(), 20000);
   await engine.cycle();
+  await publish();
 });

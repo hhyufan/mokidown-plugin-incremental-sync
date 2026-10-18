@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { IncrementalSync, sha256, validPath, decodeDocument } from '../client/engine.mjs';
-import { cloudSyncPlugin } from '../../../services/sync-server/src/plugins/cloud-sync.mjs';
-import { openStorage } from '../../../services/sync-server/src/storage.mjs';
+import { IncrementalSync, sha256, validPath, decodeDocument } from '../src/engine.mjs';
+import { cloudSyncPlugin } from '../../services/sync-server/src/plugins/cloud-sync.mjs';
+import { openStorage } from '../../services/sync-server/src/storage.mjs';
 
 async function fixture() {
   const storage = await openStorage({ type: 'sqlite', filename: ':memory:' });
@@ -159,5 +159,42 @@ test('rejects old cursor-only responses with a service upgrade diagnostic',async
  try{
   const target=f.device('legacy-page');const engine=target.create(async(method,args)=>method==='net.request'&&args.path.startsWith('/sync/changes')?{status:200,data:{changes:[],cursor:0}}:target.rpc(method,args));
   await engine.cycle();assert.match(target.report.at(-1).phase,/SYNC_PROTOCOL_MISMATCH/);assert.equal(target.report.at(-1).error,true);
+ }finally{await f.storage.close();}
+});
+for (const choice of ['local','remote','merged'])test(`resolves ${choice} against the reviewed version and persists completion`,async()=>{
+ const f=await fixture();try{
+  const a=f.device('resolve-a',{'a.md':'base'});const ea=a.create();await ea.cycle();
+  const b=f.device('resolve-b');const eb=b.create();await eb.cycle();
+  a.disk.set('a.md','cloud');b.disk.set('a.md','local');await ea.cycle();await eb.cycle();
+  const [id,conflict]=Object.entries(eb.state.conflicts)[0];
+  b.disk.set('a.md','latest local');
+  await eb.resolve(id,choice,{expectedHash:await sha256('latest local'),expectedRemoteRev:conflict.remoteRev,content:'merged result'});
+  const expected=choice==='local'?'latest local':choice==='remote'?'cloud':'merged result';
+  assert.equal(b.disk.get('a.md'),expected);
+  assert.equal((await f.storage.get('sync:default')).files[id].content,expected);
+  assert.equal(Object.keys(eb.state.conflicts).length,0);
+  assert.equal(eb.state.resolutions['a.md'].rev,eb.state.files[id].rev);
+  const restarted=b.create();await restarted.cycle();assert.ok(restarted.state.resolutions['a.md']);assert.equal(Object.keys(restarted.state.conflicts).length,0);
+ }finally{await f.storage.close();}
+});
+test('failed writes never report completion, and acknowledged retry completes the same resolution',async()=>{
+ const f=await fixture();try{
+  const a=f.device('fail-a',{'a.md':'base'});const ea=a.create();await ea.cycle();const b=f.device('fail-b');
+  let fail=false;const eb=b.create(async(method,args)=>fail&&method==='net.request'&&args.method==='PUT'?{status:503,data:{message:'offline'}}:b.rpc(method,args));await eb.cycle();
+  a.disk.set('a.md','cloud');b.disk.set('a.md','local');await ea.cycle();await eb.cycle();const id=Object.keys(eb.state.conflicts)[0];
+  fail=true;await assert.rejects(eb.resolve(id,'local'),/offline/);assert.ok(eb.state.conflicts[id]);assert.equal(eb.state.resolutions?.['a.md'],undefined);
+  fail=false;await eb.cycle();assert.equal(Object.keys(eb.state.conflicts).length,0);assert.ok(eb.state.resolutions['a.md']);
+ }finally{await f.storage.close();}
+});
+test('explicit resolution picks a legacy identity without deleting other remote records',async()=>{
+ const f=await fixture();try{
+  const b=f.device('duplicate-source',{'a.md':'base'});const engine=b.create();await engine.cycle();
+  const original=Object.keys(engine.state.files)[0];
+  await b.rpc('net.request',{method:'PUT',path:'/sync/file/duplicate-id',body:{content:'another remote',compressed:false,size:14,checksum:await sha256('another remote'),fileName:'a.md',baseRev:0,mutationId:crypto.randomUUID()}});
+  await engine.cycle();assert.ok(engine.state.conflicts['duplicate-id']);
+  await engine.resolve('duplicate-id','remote',{expectedHash:await sha256('base'),expectedRemoteRev:1});
+  assert.equal(b.disk.get('a.md'),'another remote');assert.equal(engine.state.files[original].detached,true);
+  await engine.cycle();assert.equal(Object.keys(engine.state.conflicts).length,0);
+  assert.equal(Object.keys((await f.storage.get('sync:default')).files).length,2);
  }finally{await f.storage.close();}
 });

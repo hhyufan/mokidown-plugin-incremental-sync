@@ -11,7 +11,7 @@
     "server"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=22.13.0"
   },
   "license": "MIT",
   "repository": {
@@ -20,6 +20,11 @@
   },
   "scripts": {
     "start": "node bin/cli.mjs",
-    "smoke": "node server/smoke-test.mjs"
+    "smoke": "node server/smoke-test.mjs",
+    "build:plugin": "node scripts/pack.mjs",
+    "test:plugin": "node --test client/test/*.test.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.12"
   }
 }

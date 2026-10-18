@@ -2,7 +2,7 @@
   "format": "mokidown-extension-v1",
   "id": "mokidown.incremental-sync",
   "name": "MokiDown 增量同步服务",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "permissions": [
     "workspace.read",
     "workspace.write",
@@ -10,7 +10,9 @@
     "network",
     "commands",
     "ui.statusBar",
-    "ui.fileIcons"
+    "ui.fileIcons",
+    "editor.read",
+    "editor.write"
   ],
   "fileExtensions": [
     "md",

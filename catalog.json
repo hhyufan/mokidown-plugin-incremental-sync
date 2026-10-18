@@ -2,9 +2,10 @@
   {
     "id": "mokidown.incremental-sync",
     "name": "MokiDown 增量同步服务",
-    "version": "1.5.0",
-    "url": "https://github.com/hhyufan/mokidown-plugin-incremental-sync/releases/download/v1.5.0/mokidown.incremental-sync-1.5.0.mokiplugin.json",
-    "sha256": "6751f53594a6790bb99dd119b6f74845a18a32d71b8660429289f0548141a508",
+    "version": "1.5.1",
+    "url": "https://github.com/hhyufan/mokidown-plugin-incremental-sync/releases/download/v1.5.1/mokidown.incremental-sync-1.5.1-09ed03efa60c2f85.mokiplugin.json",
+    "sha256": "09ed03efa60c2f855dba79ece89d9c181b7efc182724a97a7a129d8e40cce912",
+    "checksumMode": "canonical-json-v1",
     "permissions": [
       "workspace.read",
       "workspace.write",
@@ -12,14 +13,16 @@
       "network",
       "commands",
       "ui.statusBar",
-      "ui.fileIcons"
+      "ui.fileIcons",
+      "editor.read",
+      "editor.write"
     ],
     "fileExtensions": [
       "md",
       "markdown",
       "txt"
     ],
-    "description": "Keep your saved documents in sync with your own server and database.",
-    "descriptionZh": "将已保存的文档增量同步到自己的服务器和数据库，无需注册登录。"
+    "description": "Document-scoped incremental sync with your own service and database.",
+    "descriptionZh": "按当前文档显示状态，通过编辑器处理差异并同步到自建服务。"
   }
 ]

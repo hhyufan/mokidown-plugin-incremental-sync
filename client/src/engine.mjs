@@ -45,7 +45,7 @@ async function encodeDocument(content) {
 }
 
 export class IncrementalSync {
-  constructor(rpc, report = () => {}) { this.rpc = rpc; this.report = report; this.running = false; this.stopped = false; }
+  constructor(rpc, report = () => {}) { this.rpc = rpc; this.report = report; this.running = false; this.stopped = false; this.activePath = null; this.fileErrors = new Map(); }
   stop() { this.stopped = true; }
   async call(method, args) {
     if (this.stopped) throw new Error('Plugin stopped');
@@ -78,27 +78,39 @@ export class IncrementalSync {
     }
   }
   save() { return this.call('storage.set', { key: this.storageKey, value: this.state }); }
+  finalizeResolution(fileId, path) {
+    for (const [id, record] of Object.entries(this.state.files)) if (id !== fileId && record.path === path) record.detached = true;
+    for (const [id, other] of Object.entries(this.state.conflicts)) if (other.path === path) delete this.state.conflicts[id];
+    this.state.resolutions ||= {};
+    this.state.resolutions[path] = { fileId, rev: this.state.files[fileId].rev, checksum: this.state.files[fileId].checksum };
+    this.fileErrors.delete(path);
+  }
   async replayPending() {
     const pending = this.state.pending;
     if (!pending) return;
+    this.activePath = pending.path;
+    this.report({ phase: '同步中…', path: pending.path, state: this.state });
     try {
       const doc = await this.request(`/sync/file/${encodeURIComponent(pending.fileId)}`, pending.method, pending.body);
       this.state.files[pending.fileId] = { path: pending.path, rev: doc.rev, checksum: pending.body.checksum || '', deleted: pending.method === 'DELETE' };
       delete this.state.conflicts[pending.fileId];
       this.state.pending = null;
+      this.fileErrors.delete(pending.path);
+      if (pending.resolution) this.finalizeResolution(pending.fileId, pending.path);
       await this.save();
+      if (pending.resolution) this.report({ phase: '冲突解决完成', path: pending.path, resolved: true, state: this.state });
     } catch (error) {
-      if (error.status !== 409 || error.data.code !== 'REV_CONFLICT') throw error;
+      if (error.status !== 409 || error.data.code !== 'REV_CONFLICT') { this.fileErrors.set(pending.path, error.message); throw error; }
       const disk = await this.call('fs.read', { path: pending.path });
       this.state.conflicts[pending.fileId] = { path: pending.path, localHash: disk.checksum, remoteRev: error.data.current?.rev || 0 };
       this.state.pending = null; await this.save();
-    }
+    } finally { this.activePath = null; this.report({ phase: '文件状态已更新', path: pending.path, state: this.state }); }
   }
-  async enqueue(fileId, path, rev, disk) {
+  async enqueue(fileId, path, rev, disk, resolution = false) {
     const body = disk.content === null ? {} : { ...await encodeDocument(disk.content), fileName: path, encoding: 'UTF-8', lineEnding: disk.content.includes('\r\n') ? 'CRLF' : 'LF' };
     Object.assign(body, { baseRev: rev, mutationId: crypto.randomUUID() });
     if (encoder.encode(JSON.stringify(body)).length > 3.5 * 1024 * 1024) throw new Error(`文件请求超过 3.5 MiB: ${path}`);
-    this.state.pending = { fileId, path, method: disk.content === null ? 'DELETE' : 'PUT', body };
+    this.state.pending = { fileId, path, method: disk.content === null ? 'DELETE' : 'PUT', body, resolution };
     // Persist the immutable operation before its first network request.
     await this.save(); await this.replayPending();
   }
@@ -115,7 +127,6 @@ export class IncrementalSync {
       this.state.conflicts[doc.fileId] = { path, localHash: disk.checksum, remoteRev: doc.rev };
       await this.save(); return;
     }
-    if (force && collision) throw new Error('Another document already owns this local path');
     if (doc.deleted) {
       if (disk.content !== null) await this.call('fs.delete', { path, expectedHash: disk.checksum });
     } else {
@@ -132,10 +143,17 @@ export class IncrementalSync {
       if (!Array.isArray(page?.changes) || typeof page.nextCursor !== 'string' || typeof page.hasMore !== 'boolean' || (page.hasMore && page.nextCursor === this.state.cursor)) throw new Error('SYNC_PROTOCOL_MISMATCH: 服务端增量分页协议不完整，请升级服务端；需要 changes、nextCursor 和 hasMore，不能用旧版 cursor 响应代替。');
       for (const change of page.changes) {
         if (!/^[a-zA-Z0-9_.:-]{1,128}$/.test(change.fileId || '') || ['__proto__', 'constructor', 'prototype'].includes(change.fileId) || !Number.isSafeInteger(change.rev) || change.rev < 1) throw new Error('Invalid change entry');
-        if ((this.state.files[change.fileId]?.rev || 0) >= change.rev || this.state.conflicts[change.fileId]) continue;
-        const doc = change.deleted ? change : await this.request(`/sync/file/${encodeURIComponent(change.fileId)}`);
-        if (doc.fileId !== change.fileId || !Number.isSafeInteger(doc.rev) || doc.rev < change.rev) throw new Error('Remote document does not match the changes page');
-        await this.applyRemote(doc);
+        if (this.state.files[change.fileId]?.detached || (this.state.files[change.fileId]?.rev || 0) >= change.rev || this.state.conflicts[change.fileId]) continue;
+        const path = this.state.files[change.fileId]?.path || change.fileName;
+        this.activePath = path || null;
+        this.report({ phase: '同步中…', path, state: this.state });
+        try {
+          const doc = change.deleted ? change : await this.request(`/sync/file/${encodeURIComponent(change.fileId)}`);
+          if (doc.fileId !== change.fileId || !Number.isSafeInteger(doc.rev) || doc.rev < change.rev) throw new Error('Remote document does not match the changes page');
+          await this.applyRemote(doc);
+          this.fileErrors.delete(path);
+        } catch (error) { if (path) this.fileErrors.set(path, error.message); throw error; }
+        finally { this.activePath = null; this.report({ phase: '文件状态已更新', path, state: this.state }); }
       }
       this.state.cursor = page.nextCursor;
       await this.save(); more = Boolean(page.hasMore);
@@ -161,7 +179,7 @@ export class IncrementalSync {
       await this.replayPending();
       await this.pull();
       const files = await this.scan();
-      const byPath = new Map(Object.entries(this.state.files).filter(([, record]) => !record.deleted).map(([id, record]) => [record.path, { id, ...record }]));
+      const byPath = new Map(Object.entries(this.state.files).filter(([, record]) => !record.deleted && !record.detached).map(([id, record]) => [record.path, { id, ...record }]));
       const conflictPaths = new Set(Object.values(this.state.conflicts).map((conflict) => conflict.path));
       for (const [path, disk] of files) {
         if (conflictPaths.has(path)) continue;
@@ -170,7 +188,7 @@ export class IncrementalSync {
       }
       // Deletions are propagated only after a complete successful directory scan.
       for (const [fileId, record] of Object.entries(this.state.files)) {
-        if (!record.deleted && !files.has(record.path) && !this.state.conflicts[fileId]) {
+        if (!record.deleted && !record.detached && !files.has(record.path) && !this.state.conflicts[fileId]) {
           const current = await this.call('fs.read', { path: record.path });
           if (current.content === null) await this.enqueue(fileId, record.path, record.rev, current);
         }
@@ -179,18 +197,35 @@ export class IncrementalSync {
     } catch (error) { this.report({ phase: error.message, error: true, state: this.state }); }
     finally { this.running = false; }
   }
-  async resolve(fileId, choice) {
+  async resolve(fileId, choice, options = {}) {
     if (this.running) throw new Error('请等待当前同步结束');
     const conflict = this.state?.conflicts[fileId];
-    if (!conflict) return;
+    if (!conflict) throw new Error('冲突状态已经改变，请重新打开对比');
+    if (!['local', 'remote', 'merged'].includes(choice)) throw new Error('Invalid resolution choice');
     this.running = true;
+    this.activePath = conflict.path;
+    this.report({ phase: '处理冲突中…', path: conflict.path, state: this.state });
     try {
-      const disk = await this.call('fs.read', { path: conflict.path });
-      if (disk.checksum !== conflict.localHash) throw new Error('冲突后本地文件再次改变，请保留本地版本或重新启用插件后检查。');
+      let disk = await this.call('fs.read', { path: conflict.path });
+      if (disk.checksum !== (options.expectedHash === undefined ? conflict.localHash : options.expectedHash)) throw new Error('本地文件已改变，请重新读取后处理冲突');
       const remote = await this.request(`/sync/file/${encodeURIComponent(fileId)}`);
-      if (choice === 'local') await this.enqueue(fileId, conflict.path, remote.rev, disk);
-      else await this.applyRemote(remote, { force: true });
-      this.report({ phase: '冲突已处理', state: this.state });
-    } finally { this.running = false; }
+      if (options.expectedRemoteRev !== undefined && remote.rev !== options.expectedRemoteRev) throw new Error('云端版本已改变，请重新打开对比');
+      if (choice === 'merged') {
+        if (typeof options.content !== 'string') throw new Error('Missing merged content');
+        if (options.content !== disk.content) await this.call('fs.write', { path: conflict.path, content: options.content, expectedHash: disk.checksum });
+        disk = await this.call('fs.read', { path: conflict.path });
+      }
+      if (choice === 'local' || choice === 'merged') {
+        await this.enqueue(fileId, conflict.path, remote.rev, disk, true);
+        if (this.state.conflicts[fileId] || this.state.pending) throw new Error('版本在提交期间改变，冲突尚未解决');
+      } else await this.applyRemote(remote, { force: true });
+      // A legacy service could create several IDs for one path. Selecting a
+      // version chooses its identity; the other remote records remain intact.
+      this.finalizeResolution(fileId, conflict.path);
+      await this.save();
+      this.report({ phase: '冲突解决完成', path: conflict.path, resolved: true, state: this.state });
+      return { path: conflict.path, rev: this.state.files[fileId].rev };
+    } catch (error) { this.fileErrors.set(conflict.path, error.message); throw error; }
+    finally { this.running = false; this.activePath = null; this.report({ phase: '文件状态已更新', path: conflict.path, state: this.state }); }
   }
 }
