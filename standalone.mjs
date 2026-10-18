@@ -10,6 +10,7 @@
  * Flags: --port 4319 --proxy-port 4320 --token <hex> --no-tunnel
  */
 import http from 'node:http';
+import { createServer } from 'node:net';
 import crypto from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { chmodSync, createWriteStream, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -45,6 +46,15 @@ function accessToken() {
   return token;
 }
 
+
+function freePort(port) {
+  return new Promise((resolve) => {
+    const server = createServer();
+    server.once('error', () => resolve(false));
+    server.once('listening', () => server.close(() => resolve(true)));
+    server.listen(port, '127.0.0.1');
+  });
+}
 const TOKEN = accessToken();
 const DB_FILE = path.join(DATA_DIR, 'documents.json');
 const db = existsSync(DB_FILE) ? JSON.parse(readFileSync(DB_FILE, 'utf8')) : { rev: 0, files: {} };
@@ -193,6 +203,16 @@ async function ensureCloudflared() {
 }
 
 async function main() {
+  if (!(await freePort(PORT))) {
+    console.error('\nPort 4319 is already in use — another mokidown-sync is probably running.');
+    console.error('Stop that window (Ctrl+C) or start with --port / --proxy-port.');
+    process.exit(1);
+  }
+  if (!(await freePort(PROXY_PORT))) {
+    console.error('\nPort 4320 is already in use — another mokidown-sync is probably running.');
+    console.error('Stop that window (Ctrl+C) or start with --port / --proxy-port.');
+    process.exit(1);
+  }
   await new Promise((resolve) => syncServer.listen(PORT, '127.0.0.1', resolve));
   await new Promise((resolve) => proxyServer.listen(PROXY_PORT, '127.0.0.1', resolve));
   process.stdout.write(`[1/3] sync server :${PORT}, proxy :${PROXY_PORT}\n`);

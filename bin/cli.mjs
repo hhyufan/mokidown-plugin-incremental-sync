@@ -13,6 +13,7 @@
  * Flags: --port <n>, --proxy-port <n>, --token <hex>, --no-tunnel.
  */
 import { spawn } from 'node:child_process';
+import { createServer } from 'node:net';
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync, createWriteStream } from 'node:fs';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
@@ -30,6 +31,15 @@ const PORT = Number(flag('--port', '4319'));
 const PROXY_PORT = Number(flag('--proxy-port', '4320'));
 const USE_TUNNEL = !has('--no-tunnel');
 const HOME = path.join(os.homedir(), '.mokidown-sync');
+
+function freePort(port) {
+  return new Promise((resolve) => {
+    const server = createServer();
+    server.once('error', () => resolve(false));
+    server.once('listening', () => server.close(() => resolve(true)));
+    server.listen(port, '127.0.0.1');
+  });
+}
 const TOKEN_FILE = path.join(HOME, 'token');
 const DATA_DIR = path.join(HOME, 'data');
 const TOOLS_DIR = path.join(HOME, 'tools');
@@ -101,6 +111,16 @@ function start(processPath, label, env) {
 }
 
 async function main() {
+  if (!(await freePort(PORT))) {
+    console.error('\nPort 4319 is already in use — another mokidown-sync is probably running.');
+    console.error('Stop that window (Ctrl+C) or start with --port / --proxy-port.');
+    process.exit(1);
+  }
+  if (!(await freePort(PROXY_PORT))) {
+    console.error('\nPort 4320 is already in use — another mokidown-sync is probably running.');
+    console.error('Stop that window (Ctrl+C) or start with --port / --proxy-port.');
+    process.exit(1);
+  }
   const token = accessToken();
   const here = path.dirname(fileURLToPath(import.meta.url));
   const root = path.resolve(here, '..');
