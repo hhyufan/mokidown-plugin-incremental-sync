@@ -2,7 +2,7 @@
   "format": "mokidown-extension-v1",
   "id": "mokidown.incremental-sync",
   "name": "MokiDown 增量同步服务",
-  "version": "1.8.0",
+  "version": "1.8.1",
   "permissions": [
     "workspace.read",
     "workspace.write",
@@ -43,6 +43,15 @@
     "actions": {
       "save": "保存连接配置",
       "test": "保存并测试连接"
+    },
+    "test": {
+      "path": "/capabilities",
+      "check": [
+        "service",
+        "plugins"
+      ],
+      "success": "连接成功",
+      "failure": "请检查服务地址、反向代理路径或隧道是否在线。"
     }
   },
   "description": "Show sync state for the current document and resolve differences inside the editor.",
