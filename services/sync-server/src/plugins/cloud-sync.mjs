@@ -52,6 +52,22 @@ export const cloudSyncPlugin = {
       const changes = pending.slice(0, limit).map(metadata);
       return { changes, nextCursor: String(changes.at(-1)?.seq ?? state.seq), hasMore: pending.length > limit };
     }
+    const versions = path.match(/^\/sync\/file\/([^/]+)\/versions(?:\/(\d+))?$/);
+    if (versions && method === 'GET') {
+      let fileId;
+      try { fileId = decodeURIComponent(versions[1]); } catch { throw new ApiError(400, 'INVALID_REQUEST', 'Invalid file ID'); }
+      requireValue(safeId(fileId), 'Invalid file ID');
+      const state = await storage.get(key);
+      const current = state?.files[fileId];
+      if (!current) throw new ApiError(404, 'FILE_NOT_FOUND', 'Document not found');
+      const history = { ...state.history?.[fileId], [current.rev]: current };
+      if (!versions[2]) return { versions: Object.values(history).sort((a, b) => b.rev - a.rev).map(metadata) };
+      const revision = Number(versions[2]);
+      requireValue(Number.isSafeInteger(revision) && revision > 0, 'Invalid revision');
+      const doc = history[revision];
+      if (!doc) throw new ApiError(404, 'VERSION_NOT_FOUND', 'Document revision not found');
+      return doc;
+    }
     const match = path.match(/^\/sync\/(file|bindings)\/([^/]+)$/);
     if (!match) return undefined;
     const [, kind, rawId] = match;
@@ -79,6 +95,10 @@ export const cloudSyncPlugin = {
       const current = state.files[fileId];
       if (binding && (!current || current.deleted)) throw new ApiError(404, 'FILE_NOT_FOUND', 'Document not found');
       if (!binding && (current?.rev || 0) !== body.baseRev) throw new ApiError(409, 'REV_CONFLICT', 'Document changed on another device', { current: current || null });
+      if (!binding && method === 'PUT' && !current && body.fileName) {
+        const occupied = Object.values(state.files).find(doc => !doc.deleted && doc.fileName === body.fileName);
+        if (occupied) throw new ApiError(409, 'PATH_CONFLICT', 'Document path already exists on another device', { current: occupied });
+      }
       let doc;
       if (binding) {
         doc = { ...current, deviceBindings: { ...current.deviceBindings, [body.deviceId]: body.devicePath } };
@@ -96,6 +116,14 @@ export const cloudSyncPlugin = {
           deviceBindings: { ...current?.deviceBindings },
         };
         if (body.deviceId && safeId(body.deviceId) && body.devicePath) doc.deviceBindings[body.deviceId] = body.devicePath;
+      }
+      if (!binding) {
+        // Persist snapshots in the same CAS transaction as the head and receipt.
+        // Preserve the existing head when upgrading a database without history.
+        state.history ||= {};
+        const history = state.history[fileId] ||= {};
+        if (current) history[current.rev] ||= current;
+        history[doc.rev] = doc;
       }
       state.files[fileId] = doc;
       const result = metadata(doc);

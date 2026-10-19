@@ -6,11 +6,11 @@
 
 ## Linux 快速部署（推荐 Docker）
 
-需要 Docker Engine 和 Docker Compose 插件。下载 GitHub Release 中的 `mokidown-plugin-server-1.0.0.tar.gz`，解压后执行：
+需要 Docker Engine 和 Docker Compose 插件。下载 GitHub Release 中的 `mokidown-plugin-server-1.8.0.tar.gz`，解压后执行：
 
 ```sh
 mkdir -p mokidown-sync
-tar -xzf mokidown-plugin-server-1.0.0.tar.gz -C mokidown-sync
+tar -xzf mokidown-plugin-server-1.8.0.tar.gz -C mokidown-sync
 cd mokidown-sync
 sh deploy.sh
 ```
@@ -130,3 +130,7 @@ npm run migrate:legacy -- /path/to/old/data
 工具先校验正文哈希与大小，再备份原 JSON，并一次性导入同目录的 sync-v3.sqlite。再次执行不会覆盖已迁移数据。保留文件 ID、文件版本和全局游标，并恢复可识别 PUT 操作的幂等记录。旧服务已经物理删除且未保留的记录无法重建。
 
 将 config.json 的 database.type 设为 sqlite、database.filename 设为工具输出的路径。原示例服务的 instanceId 为 mokidown-sync-local、namespace 为 default；保留原值和访问密钥，避免客户端重新建立状态。不要让旧服务继续写原 JSON；升级后的服务统一使用 SQLite。重复路径的旧记录保留为冲突，需在插件面板确认，不自动丢弃。
+
+## 历史与并发（1.8.0）
+
+`GET /sync/file/:id/versions` 列出不可变快照，`GET /sync/file/:id/versions/:rev` 读取指定快照。每次写入将历史、当前文件、序列与幂等回执一同提交；数据库配额失败时全部保持原状。过期 baseRev 返回 409 REV_CONFLICT，同路径首次并发创建返回 409 PATH_CONFLICT。恢复相同 mutationId 不重复生成历史。

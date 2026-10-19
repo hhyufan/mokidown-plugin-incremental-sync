@@ -12,7 +12,8 @@ const wait=async(check)=>{const end=Date.now()+5000;while(!check()){if(Date.now(
 const bundled=await build({entryPoints:[fileURLToPath(new URL('../src/main.mjs',import.meta.url))],bundle:true,format:'iife',write:false,alias:{'@mokidown/sdk':fileURLToPath(new URL('../../sdk/index.mjs',import.meta.url))}});
 async function fixture(){
  const storage=await openStorage({type:'sqlite',filename:':memory:'});
- const disk=new Map([['a.md','initial a'],['b.md','initial b']]),saved=new Map(),statuses=new Map(),registered=new Set(),replies=new Map(),handlers=new Map();
+ const disk=new Map([['a.md','initial a'],['b.md','initial b']]),saved=new Map(),statuses=new Map(),badges=new Map(),registered=new Set(),replies=new Map(),handlers=new Map();
+ let networkFailure=false;
  let documents=[{id:'a',path:'/notes/a.md',name:'a.md',relativePath:'a.md',active:true},{id:'b',path:'/notes/b.md',name:'b.md',relativePath:'b.md',active:false}],comparison;
  const parent={postMessage(){}};const window={addEventListener:(name,callback)=>handlers.set(name,callback),removeEventListener:name=>handlers.delete(name)};
  const ports=new MessageChannel();
@@ -26,11 +27,14 @@ async function fixture(){
   if(method==='storage.set'){saved.set(args.key,structuredClone(args.value));return true;}
   if(method==='statusBar.addItem'){statuses.set(args.id,args);return true;}
   if(method==='statusBar.remove'){statuses.delete(args.id);return true;}
-  if(method.startsWith('fileBadge.')||method.startsWith('task.'))return true;
+  if(method==='fileBadge.add'){badges.set(args.id,args);return true;}
+  if(method==='fileBadge.remove'){badges.delete(args.id);return true;}
+  if(method==='versions.set'||method==='versions.remove'||method.startsWith('task.'))return true;
   if(method==='fs.list')return [...disk.keys()].map(name=>({name,directory:false}));
   if(method==='fs.read'){const content=disk.get(args.path)??null;return {content,checksum:content===null?null:hash(content)};}
   if(method==='fs.write'){assert.equal(hash(disk.get(args.path)),args.expectedHash);disk.set(args.path,args.content);return true;}
   if(method==='net.request'){
+   if(networkFailure)return {status:503,data:{message:'Service unavailable'}};
    if(args.path==='/capabilities')return {status:200,data:{service:'mokidown-plugin-server',instanceId:'ui-fixture',namespace:'default',plugins:[{id:'cloud-sync',protocolVersion:3}]}};
    const url=new URL(args.path,'http://fixture');
    try{return {status:200,data:await cloudSyncPlugin.handle({method:args.method||'GET',path:url.pathname,query:url.searchParams,body:args.body,namespace:'default',storage})};}
@@ -46,7 +50,7 @@ async function fixture(){
  handlers.get('message')({source:parent,data:{type:'mokidown:extension-port'},ports:[ports.port2]});
  const command=(id,args)=>new Promise((resolve,reject)=>{const requestId=webcrypto.randomUUID();replies.set(requestId,{resolve,reject});ports.port1.postMessage({type:'command',id,args,requestId});});
  await wait(()=>statuses.size===2);
- return {disk,statuses,storage,request,command,get comparison(){return comparison;},setDocuments(next){documents=next;ports.port1.postMessage({type:'event',name:'documentsChanged',payload:next});},close:async()=>{handlers.get('pagehide')?.();ports.port1.close();await storage.close();}};
+ return {disk,statuses,badges,storage,request,command,setNetworkFailure(value){networkFailure=value;},get comparison(){return comparison;},setDocuments(next){documents=next;ports.port1.postMessage({type:'event',name:'documentsChanged',payload:next});},close:async()=>{handlers.get('pagehide')?.();ports.port1.close();await storage.close();}};
 }
 for(const choice of ['local','remote','merged'])test(`document-scoped UI ${choice} action acknowledges real database completion`,async()=>{
  const f=await fixture();try{
@@ -62,5 +66,17 @@ for(const choice of ['local','remote','merged'])test(`document-scoped UI ${choic
   assert.equal(f.disk.get('a.md'),expected);assert.equal((await f.storage.get('sync:default')).files[fileId].content,expected);
   await f.command('sync.now');await wait(()=>[...f.statuses.values()].find(item=>item.documentId==='a')?.text==='冲突解决完成');
   f.setDocuments([{id:'outside',path:'/other/new.md',relativePath:null,active:true}]);await wait(()=>f.statuses.size===0);
+ }finally{await f.close();}
+});
+
+test('failed sync replaces stale green badges and restores them only after retry',async()=>{
+ const f=await fixture();try{
+  await wait(()=>[...f.badges.values()].some(item=>item.id==='cloud-ok'&&item.paths.length===2));
+  f.disk.set('a.md','unsent edit');f.setNetworkFailure(true);await f.command('sync.now');
+  await wait(()=>[...f.statuses.values()].some(item=>item.documentId==='a'&&item.text==='同步失败'));
+  const status=[...f.statuses.values()].find(item=>item.documentId==='a');assert.equal(status.tone,'error');assert.match(status.icon,/<path/);assert.match(status.icon,/#f85149/);
+  const failed=f.badges.get('cloud-error');assert.ok(failed.paths.includes('a.md'));assert.equal(f.badges.get('cloud-ok').paths.length,0);assert.equal(f.disk.get('a.md'),'unsent edit');
+  f.setNetworkFailure(false);await f.command('sync.now');await wait(()=>[...f.statuses.values()].every(item=>item.text==='已同步'));
+  assert.equal(f.badges.has('cloud-error'),false);assert.equal(f.badges.get('cloud-ok').paths.length,2);
  }finally{await f.close();}
 });

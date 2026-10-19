@@ -34,3 +34,30 @@ test('imports legacy data once, preserves originals, and paginates without skipp
 test('rejects damaged legacy content instead of importing it silently',()=>{
  const data=legacy(1);data.files['file-1'].content='corrupted';assert.throws(()=>migrateLegacyState(data),/checksum or size/);
 });
+
+test('migrates all surviving legacy histories without replacing newer SQLite content',async()=>{
+ const dir=await mkdtemp(join(tmpdir(),'moki-legacy-history-'));let storage;
+ try{
+  const old=legacy(1);old.rev=2;old.files['file-1']={...old.files['file-1'],rev:2,content:'second',size:6,checksum:hash('second')};
+  old.versions={'file-1':[{rev:1,content:'first',compressed:false,size:5,checksum:hash('first'),updatedAt:1000},{rev:2,content:'second',compressed:false,size:6,checksum:hash('second'),updatedAt:2000}]};
+  await writeFile(join(dir,'documents.json'),JSON.stringify(old));storage=await openLegacyStorage(dir);
+  const state=await storage.get('sync:default');assert.equal(state.history['file-1'][1].content,'first');assert.equal(state.history['file-1'][2].content,'second');
+  await storage.mutate('sync:default',{},state=>{delete state.legacyHistoryImported;delete state.legacyImportedHash;delete state.history;state.files['file-1'].content='new SQLite head';state.files['file-1'].rev=3;});
+  await storage.close();storage=await openLegacyStorage(dir);
+  assert.equal((await storage.get('sync:default')).files['file-1'].content,'new SQLite head');assert.equal((await storage.get('sync:default')).history['file-1'][1].content,'first');
+ }finally{await storage?.close();await rm(dir,{recursive:true,force:true});}
+});
+
+test('imports writes from a resumed old server once and preserves newer SQLite edits',async()=>{
+ const dir=await mkdtemp(join(tmpdir(),'moki-reupgrade-'));let storage;
+ try{
+  const old=legacy(1);await writeFile(join(dir,'documents.json'),JSON.stringify(old));storage=await openLegacyStorage(dir);await storage.close();storage=null;
+  old.rev=2;Object.assign(old.files['file-1'],{rev:2,content:'new JSON',size:8,checksum:hash('new JSON'),updatedAt:2000});
+  await writeFile(join(dir,'documents.json'),JSON.stringify(old));storage=await openLegacyStorage(dir);
+  let state=await storage.get('sync:default');assert.equal(state.files['file-1'].content,'new JSON');assert.ok(state.seq>2);const seq=state.seq;
+  await storage.close();storage=await openLegacyStorage(dir);assert.equal((await storage.get('sync:default')).seq,seq);
+  await storage.mutate('sync:default',{},state=>Object.assign(state.files['file-1'],{content:'newer SQLite',updatedAt:4000}));await storage.close();storage=null;
+  old.rev=3;old.files['file-1'].rev=3;old.files['file-1'].updatedAt=3000;await writeFile(join(dir,'documents.json'),JSON.stringify(old));storage=await openLegacyStorage(dir);
+  assert.equal((await storage.get('sync:default')).files['file-1'].content,'newer SQLite');
+ }finally{await storage?.close();await rm(dir,{recursive:true,force:true});}
+});

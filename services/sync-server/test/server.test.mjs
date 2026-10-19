@@ -49,7 +49,7 @@ test('replays immutable operations once and detects concurrent writers', async (
 });
 
 test('seek pagination retains deletion tombstones and explicit restores', async () => {
-  for (const id of ['a', 'b', 'c']) await request(`/sync/file/${id}`, 'PUT', snapshot(id));
+  for (const id of ['a', 'b', 'c']) await request(`/sync/file/${id}`, 'PUT', { ...snapshot(id), fileName: `${id}.md` });
   const page1 = (await request('/sync/changes?cursor=&limit=2')).data;
   assert.equal(page1.hasMore, true); assert.equal(page1.changes.length, 2);
   const page2 = (await request(`/sync/changes?cursor=${page1.nextCursor}&limit=2`)).data;
@@ -109,4 +109,15 @@ test('quota failures do not partially advance revisions or cursors', async () =>
   assert.equal(result.status, 413);
   assert.equal((await request('/sync/file/a')).status, 404);
   assert.deepEqual((await request('/sync/changes')).data, { changes: [], nextCursor: '0', hasMore: false });
+});
+
+test('appends immutable history including compressed snapshots and tombstones',async()=>{
+ const first=snapshot('first');await request('/sync/file/history','PUT',first);
+ const next=snapshot('第二次内容'.repeat(4000),1);next.content=gzipSync(Buffer.from(next.content)).toString('base64');next.compressed=true;
+ await request('/sync/file/history','PUT',next);await request('/sync/file/history','PUT',next);
+ const versions=(await request('/sync/file/history/versions')).data.versions;assert.deepEqual(versions.map(doc=>doc.rev),[2,1]);assert.equal(versions.some(doc=>'content' in doc),false);
+ assert.equal((await request('/sync/file/history/versions/1')).data.content,'first');assert.equal((await request('/sync/file/history/versions/2')).data.content,next.content);
+ assert.equal((await request('/sync/file/history/versions/2','GET',undefined,other)).status,404);
+ assert.equal((await request('/sync/file/history/versions/99')).status,404);
+ await request('/sync/file/history','DELETE',{baseRev:2,mutationId:randomUUID()});assert.deepEqual((await request('/sync/file/history/versions')).data.versions.map(doc=>doc.rev),[3,2,1]);assert.equal((await request('/sync/file/history/versions/1')).data.content,'first');
 });

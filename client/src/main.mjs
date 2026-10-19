@@ -6,7 +6,7 @@ const check = (color) => `<svg viewBox="0 0 24 24" fill="none" stroke="${color}"
 const cross = (color) => `<svg viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2.4" stroke-linecap="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>`;
 const warningTriangle = (color) => `<svg viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`;
 // Status icons are the plugin's choice: check = synced, triangle = conflicts, cross = failure.
-const ICONS = { success: check('#3fb950'), warning: warningTriangle('#d29922'), error: cross('#f85149'), info: cloud('currentColor') };
+const ICONS = { success: check('#3fb950'), warning: warningTriangle('#d29922'), error: cloud('#f85149'), info: cloud('currentColor') };
 // File-list badges keep the cloud, colored by state.
 const BADGES = { success: cloud('#3fb950'), warning: cloud('#d29922'), error: cloud('#f85149') };
 
@@ -40,14 +40,14 @@ definePlugin(async (sdk) => {
         if (!path) continue;
         const conflict = conflicts.find(([, record]) => record.path === path);
         const record = files.find(([, file]) => file.path === path);
-        if (!conflict && !record && engine.activePath !== path) continue;
+        if (!conflict && !record && !engine.fileErrors.has(path) && !engine.lastError && engine.state?.pending?.path !== path && engine.activePath !== path) continue;
         const id = `document.${(await sha256(`${document.id}:${path}`)).slice(0, 32)}`;
         alive.add(id);
-        const resolved = engine.state.resolutions?.[path];
-        const error = engine.fileErrors.get(path);
-        const busy = engine.running || engine.activePath === path;
+        const resolved = engine.state?.resolutions?.[path];
+        const error = engine.fileErrors.get(path) || engine.lastError;
+        const busy = engine.activePath === path || (engine.running && !engine.activePath);
         const completed = record && resolved?.fileId === record[0] && resolved.rev === record[1].rev && resolved.checksum === record[1].checksum;
-        const text = busy ? '同步中…' : error ? '同步失败' : conflict ? '存在冲突' : '同步完成';
+        const text = busy ? '同步中…' : error ? '同步失败' : conflict ? '同步冲突' : completed ? '冲突解决完成' : '已同步';
         const tone = busy ? 'info' : error ? 'error' : conflict ? 'warning' : 'success';
         const item = { documentId: document.id, text, title: error || `${document.name} · ${text}`, icon: ICONS[tone], tone, busy, command: conflict ? 'sync.handle' : 'sync.now', args: { documentId: document.id, path } };
         const key = JSON.stringify(item);
@@ -72,7 +72,10 @@ definePlugin(async (sdk) => {
           const stored = await sdk.storage.get(storedKey).catch(() => null);
           let items = [];
           let emptyText = '暂无历史';
-          if (Array.isArray(stored) && stored.length) {
+          const remoteList = await sdk.net.request(`/sync/file/${encodeURIComponent(activeRecord[0])}/versions`).catch(() => null);
+          if (remoteList?.status === 200 && Array.isArray(remoteList.data?.versions)) {
+            items = remoteList.data.versions.filter((entry) => !entry.deleted).map((entry) => ({ id: `${activeRecord[0]}:${entry.rev}`, label: `rev ${entry.rev}`, meta: new Date(entry.updatedAt).toLocaleString(), rev: entry.rev }));
+          } else if (Array.isArray(stored) && stored.length) {
             items = stored.slice().reverse().map((entry) => ({
               id: `${activeRecord[0]}:${entry.rev}`,
               label: `rev ${entry.rev}`,
@@ -105,9 +108,12 @@ definePlugin(async (sdk) => {
         await sdk.versions.remove(stale).catch(() => {});
       }
       for (const id of statusIds) if (!alive.has(id)) { await sdk.statusBar.remove(id); statusIds.delete(id); presentations.delete(id); }
+      const failed = new Set([...engine.fileErrors.keys(), ...(engine.lastError ? files.map(([, file]) => file.path) : [])]);
+      if (failed.size) await sdk.fileBadges.set('cloud-error', { paths: [...failed], svg: BADGES.error, title: '同步失败，等待重试' });
+      else await sdk.fileBadges.remove('cloud-error');
       if (conflicts.length) await sdk.fileBadges.set('cloud-conflict', { paths: conflicts.map(([, record]) => record.path), svg: BADGES.warning, title: '同步冲突' });
       else await sdk.fileBadges.remove('cloud-conflict');
-      await sdk.fileBadges.set('cloud-ok', { paths: files.filter(([, file]) => !conflicts.some(([, conflict]) => conflict.path === file.path)).map(([, file]) => file.path), svg: BADGES.success, title: '已同步' });
+      await sdk.fileBadges.set('cloud-ok', { paths: files.filter(([, file]) => !failed.has(file.path) && !conflicts.some(([, conflict]) => conflict.path === file.path)).map(([, file]) => file.path), svg: BADGES.success, title: '已同步' });
     } finally { publishing = false; if (again) { again = false; schedule(); } }
   };
   const schedule = () => { if (scheduled || sdk.signal.aborted) return; scheduled = setTimeout(() => { scheduled = null; void publish().catch(console.error); }, 32); };
@@ -123,28 +129,18 @@ definePlugin(async (sdk) => {
   });
   sdk.on('versionSelected', async (payload) => {
     if (!versionTarget || !Number.isSafeInteger(payload?.rev)) return;
-    // Prefer the cached snapshot (has content, works with old servers).
-    const storedKey = historyKey(versionTarget.fileId);
-    const stored = await sdk.storage.get(storedKey).catch(() => null);
-    const cached = Array.isArray(stored) ? stored.find((entry) => entry.rev === payload.rev) : null;
-    if (cached && typeof cached.content === 'string') {
-      await sdk.rpc('editor.showDiff', { path: versionTarget.path, content: cached.content, label: `云端历史 rev ${payload.rev}`, actionLabel: '使用此版本', applyIcon: 'cloud-download', rev: payload.rev }).catch(() => {});
-      return;
+    const target = { ...versionTarget };
+    const detail = await sdk.net.request(`/sync/file/${encodeURIComponent(target.fileId)}/versions/${payload.rev}`).catch(() => null);
+    let content;
+    if (detail?.status === 200 && detail.data?.rev === payload.rev && typeof detail.data.content === 'string') content = await decodeDocument(detail.data);
+    else {
+      // Compatibility fallback contains the requested snapshot, never the head.
+      const stored = await sdk.storage.get(historyKey(target.fileId)).catch(() => null);
+      const cached = Array.isArray(stored) ? stored.find(entry => entry.rev === payload.rev) : null;
+      if (typeof cached?.content !== 'string' || await sha256(cached.content) !== cached.checksum) throw new Error('云端历史版本读取失败，请重试或升级服务端');
+      content = cached.content;
     }
-    let detail = await sdk.rpc('net.request', { path: `/sync/file/${encodeURIComponent(versionTarget.fileId)}/versions/${payload.rev}`, method: 'GET' }).catch(() => null);
-    // Old servers have no per-revision route: compare with the current one.
-    if (detail?.status !== 200 || typeof detail.data?.content !== 'string') {
-      detail = await sdk.rpc('net.request', { path: `/sync/file/${encodeURIComponent(versionTarget.fileId)}`, method: 'GET' }).catch(() => null);
-    }
-    if (detail?.status !== 200 || typeof detail.data?.content !== 'string') return;
-    await sdk.rpc('editor.showDiff', {
-      path: versionTarget.path,
-      content: detail.data.content,
-      label: `云端历史 rev ${payload.rev}`,
-      actionLabel: '使用此版本',
-      applyIcon: 'cloud-download',
-      rev: payload.rev,
-    }).catch(() => {});
+    await sdk.editor.showDiff({ path: target.path, content, label: `云端历史 rev ${payload.rev}`, actionLabel: '使用此版本', applyIcon: 'cloud-download', rev: payload.rev });
   });
   await sdk.commands.register('sync.remote', '查看当前文件云端版本', async (args) => {
     const active = args?.path ? null : await sdk.rpc('editor.getActiveDocument').catch(() => null);
@@ -172,7 +168,7 @@ definePlugin(async (sdk) => {
         rev: version.rev,
         label: `云端历史 rev ${version.rev}`,
         meta: new Date(version.updatedAt || Date.now()).toLocaleString(),
-        content: detail.data.content,
+        content: await decodeDocument(detail.data),
         actionLabel: '使用此版本',
         applyIcon: 'cloud-download',
       });

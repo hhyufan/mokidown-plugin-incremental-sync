@@ -89,7 +89,7 @@ const server = http.createServer((req, res) => {
   req.pipe(request);
 });
 
-server.listen(PORT, '127.0.0.1', () => {
+server.listen(PORT, process.env.PROXY_HOST || '127.0.0.1', () => {
   console.log(
     `[sync-proxy] http://127.0.0.1:${PORT} -> ${TARGET} ` +
       `(token ${TOKEN ? 'injected' : 'off'}, ${RATE_LIMIT} req/${RATE_WINDOW}ms)`,

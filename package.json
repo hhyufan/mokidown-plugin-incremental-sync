@@ -1,6 +1,6 @@
 {
   "name": "mokidown-sync-server",
-  "version": "1.0.0",
+  "version": "1.8.0",
   "description": "One-command sync server + public tunnel for the MokiDown incremental-sync plugin",
   "type": "module",
   "bin": {
@@ -22,7 +22,10 @@
     "start": "node bin/cli.mjs",
     "smoke": "node server/smoke-test.mjs",
     "build:plugin": "node scripts/pack.mjs",
-    "test:plugin": "node --test client/test/*.test.mjs"
+    "test:plugin": "node --test client/test/*.test.mjs",
+    "build:standalone": "node scripts/build-standalone.mjs",
+    "test:server": "node --test services/sync-server/test/*.test.mjs",
+    "test": "npm run build:standalone && node --test client/test/*.test.mjs services/sync-server/test/*.test.mjs"
   },
   "devDependencies": {
     "esbuild": "^0.25.12"

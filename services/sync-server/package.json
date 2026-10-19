@@ -1,6 +1,6 @@
 {
   "name": "@mokidown/plugin-server",
-  "version": "1.0.1",
+  "version": "1.8.0",
   "private": true,
   "type": "module",
   "engines": {

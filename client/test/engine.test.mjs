@@ -190,11 +190,25 @@ test('explicit resolution picks a legacy identity without deleting other remote 
  const f=await fixture();try{
   const b=f.device('duplicate-source',{'a.md':'base'});const engine=b.create();await engine.cycle();
   const original=Object.keys(engine.state.files)[0];
-  await b.rpc('net.request',{method:'PUT',path:'/sync/file/duplicate-id',body:{content:'another remote',compressed:false,size:14,checksum:await sha256('another remote'),fileName:'a.md',baseRev:0,mutationId:crypto.randomUUID()}});
+  // Simulate a duplicate identity imported from a legacy service.
+  await f.storage.mutate('sync:default', {}, state => { state.files['duplicate-id'] = { ...state.files[original], fileId: 'duplicate-id', seq: ++state.seq, content: 'another remote', size: 14, checksum: null }; });
+  const duplicateHash = await sha256('another remote');
+  await f.storage.mutate('sync:default', {}, state => { state.files['duplicate-id'].checksum = state.files['duplicate-id'].contentHash = duplicateHash; });
   await engine.cycle();assert.ok(engine.state.conflicts['duplicate-id']);
   await engine.resolve('duplicate-id','remote',{expectedHash:await sha256('base'),expectedRemoteRev:1});
   assert.equal(b.disk.get('a.md'),'another remote');assert.equal(engine.state.files[original].detached,true);
   await engine.cycle();assert.equal(Object.keys(engine.state.conflicts).length,0);
   assert.equal(Object.keys((await f.storage.get('sync:default')).files).length,2);
+ }finally{await f.storage.close();}
+});
+
+test('racing first uploads of one path use one identity and require resolution',async()=>{
+ const f=await fixture();try{
+  const a=f.device('race-a',{'new.md':'first'}),b=f.device('race-b',{'new.md':'second'});
+  const ea=a.create(),eb=b.create();await Promise.all([ea.cycle(),eb.cycle()]);
+  assert.equal(Object.keys((await f.storage.get('sync:default')).files).length,1);
+  const loser=Object.keys(ea.state.conflicts).length?ea:eb;
+  const id=Object.keys(loser.state.conflicts)[0];assert.ok(id);await loser.resolve(id,'local');
+  assert.deepEqual(loser.state.conflicts,{});assert.equal(Object.keys((await f.storage.get('sync:default')).files).length,1);
  }finally{await f.storage.close();}
 });

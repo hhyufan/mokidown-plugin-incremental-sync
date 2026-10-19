@@ -99,13 +99,14 @@ export class IncrementalSync {
       if (pending.resolution) this.finalizeResolution(pending.fileId, pending.path);
       await this.save();
       if (pending.method !== 'DELETE') {
-        await this.hooks?.onSynced?.({ fileId: pending.fileId, path: pending.path, rev: doc.rev, checksum: pending.body.checksum, size: pending.body.size, content: pending.body.content });
+        await this.hooks?.onSynced?.({ fileId: pending.fileId, path: pending.path, rev: doc.rev, checksum: pending.body.checksum, size: pending.body.size, content: await decodeDocument(pending.body) });
       }
       if (pending.resolution) this.report({ phase: '冲突解决完成', path: pending.path, resolved: true, state: this.state });
     } catch (error) {
-      if (error.status !== 409 || error.data.code !== 'REV_CONFLICT') { this.fileErrors.set(pending.path, error.message); throw error; }
+      if (error.status !== 409 || !['REV_CONFLICT', 'PATH_CONFLICT'].includes(error.data.code)) { this.fileErrors.set(pending.path, error.message); throw error; }
       const disk = await this.call('fs.read', { path: pending.path });
-      this.state.conflicts[pending.fileId] = { path: pending.path, localHash: disk.checksum, remoteRev: error.data.current?.rev || 0 };
+      const conflictId = error.data.code === 'PATH_CONFLICT' ? error.data.current.fileId : pending.fileId;
+      this.state.conflicts[conflictId] = { path: pending.path, localHash: disk.checksum, remoteRev: error.data.current?.rev || 0 };
       this.state.pending = null; await this.save();
     } finally { this.activePath = null; this.report({ phase: '文件状态已更新', path: pending.path, state: this.state }); }
   }
@@ -178,6 +179,7 @@ export class IncrementalSync {
     // A manual click while a cycle is running must not be dropped; queue it.
     if (this.running) { this.queued = true; return; }
     this.running = true;
+    this.lastError = null;
     this.report({ phase: '同步中…', state: this.state });
     try {
       if (!this.state) await this.initialize();
@@ -200,9 +202,10 @@ export class IncrementalSync {
         }
       }
       this.report({ phase: '已完成增量同步', state: this.state });
-    } catch (error) { this.report({ phase: error.message, error: true, state: this.state }); }
+    } catch (error) { this.lastError = error.message; this.report({ phase: error.message, error: true, state: this.state }); }
     finally {
       this.running = false;
+      this.report({ phase: this.lastError || '文件状态已更新', ...(this.lastError ? { error: true } : {}), state: this.state });
       if (this.queued) { this.queued = false; void this.cycle(); }
     }
   }
