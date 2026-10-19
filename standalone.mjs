@@ -381,12 +381,11 @@ var init_cloud_sync = __esm({
             };
             if (body.deviceId && safeId(body.deviceId) && body.devicePath) doc.deviceBindings[body.deviceId] = body.devicePath;
           }
-          if (!binding) {
-            state.history ||= {};
-            const history = state.history[fileId] ||= {};
-            if (current) history[current.rev] ||= current;
-            history[doc.rev] = doc;
-          }
+          // Always keep revision history, even for bound devices.
+          state.history ||= {};
+          const history = state.history[fileId] ||= {};
+          if (current) history[current.rev] ||= current;
+          history[doc.rev] = doc;
           state.files[fileId] = doc;
           const result = metadata(doc);
           state.receipts[body.mutationId] = { fingerprint, result };
