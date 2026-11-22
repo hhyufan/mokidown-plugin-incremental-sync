@@ -45,7 +45,7 @@ async function encodeDocument(content) {
 }
 
 export class IncrementalSync {
-  constructor(rpc, report = () => {}, hooks = {}) { this.rpc = rpc; this.report = report; this.hooks = hooks; this.running = false; this.stopped = false; this.activePath = null; this.fileErrors = new Map(); }
+  constructor(rpc, report = () => {}, hooks = {}) { this.rpc = rpc; this.report = report; this.hooks = hooks; this.running = false; this.stopped = false; this.cancelled = false; this.activePath = null; this.fileErrors = new Map(); }
   stop() { this.stopped = true; }
   async call(method, args) {
     if (this.stopped) throw new Error('Plugin stopped');
@@ -96,6 +96,7 @@ export class IncrementalSync {
     this.fileErrors.delete(path);
   }
   async replayPending() {
+    if (this.cancelled) return;
     const pending = this.state.pending;
     if (!pending) return;
     this.activePath = pending.path;
@@ -153,9 +154,11 @@ export class IncrementalSync {
   async pull() {
     let more = true;
     while (more) {
+      if (this.cancelled) return;
       const page = await this.request(`/sync/changes?cursor=${encodeURIComponent(this.state.cursor)}&limit=100`);
       if (!Array.isArray(page?.changes) || typeof page.nextCursor !== 'string' || typeof page.hasMore !== 'boolean' || (page.hasMore && page.nextCursor === this.state.cursor)) throw new Error('SYNC_PROTOCOL_MISMATCH: 服务端增量分页协议不完整，请升级服务端；需要 changes、nextCursor 和 hasMore，不能用旧版 cursor 响应代替。');
       for (const change of page.changes) {
+        if (this.cancelled) return;
         if (!/^[a-zA-Z0-9_.:-]{1,128}$/.test(change.fileId || '') || ['__proto__', 'constructor', 'prototype'].includes(change.fileId) || !Number.isSafeInteger(change.rev) || change.rev < 1) throw new Error('Invalid change entry');
         if (this.state.files[change.fileId]?.detached || (this.state.files[change.fileId]?.rev || 0) >= change.rev || this.state.conflicts[change.fileId]) continue;
         const path = this.state.files[change.fileId]?.path || change.fileName;
@@ -184,6 +187,8 @@ export class IncrementalSync {
     }
     return files;
   }
+  cancelCycle() { this.cancelled = true; }
+
   async cycle() {
     if (this.stopped) return;
     // A manual click while a cycle is running must not be dropped; queue it.

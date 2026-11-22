@@ -198,7 +198,17 @@ definePlugin(async (sdk) => {
   });
   await sdk.commands.register('sync.resolve', '解决当前文件冲突', async (args) => {
     if (!args?.document || !['local','remote','merged'].includes(args.choice)) throw new Error('无效的冲突操作');
-    while (engine.running && !sdk.signal.aborted) await new Promise((resolve) => setTimeout(resolve, 50));
+    // A cycle can be busy with a large pull; wait briefly, then preempt it.
+    const deadline = Date.now() + 15000;
+    while (engine.running && !sdk.signal.aborted && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    if (engine.running) engine.cancelCycle?.();
+    const grace = Date.now() + 5000;
+    while (engine.running && !sdk.signal.aborted && Date.now() < grace) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    if (engine.running) throw new Error('Sync is still running');
     await engine.resolve(args.fileId, args.choice, { expectedHash: args.document.checksum, expectedRemoteRev: args.remoteRev, content: args.draftContent });
     await sdk.editor.reloadDocument(args.document.id);
     await publish();

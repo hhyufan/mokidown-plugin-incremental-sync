@@ -1,0 +1,28 @@
+[
+  {
+    "id": "mokidown.incremental-sync",
+    "name": "MokiDown 增量同步服务",
+    "version": "1.9.1",
+    "url": "https://github.com/hhyufan/mokidown-plugin-incremental-sync/releases/download/v1.9.1/mokidown.incremental-sync-1.9.1-4fc136a3005b07ac.mokiplugin.json",
+    "sha256": "4fc136a3005b07acb9dbda406cb38d8fae2283e778d5ec3ab7d406b729d751c6",
+    "checksumMode": "canonical-json-v1",
+    "permissions": [
+      "workspace.read",
+      "workspace.write",
+      "storage",
+      "network",
+      "commands",
+      "ui.statusBar",
+      "ui.fileIcons",
+      "editor.read",
+      "editor.write"
+    ],
+    "fileExtensions": [
+      "md",
+      "markdown",
+      "txt"
+    ],
+    "description": "Document-scoped incremental sync with your own service and database.",
+    "descriptionZh": "按当前文档显示状态，通过编辑器处理差异并同步到自建服务。"
+  }
+]
