@@ -17,6 +17,25 @@ definePlugin(async (sdk) => {
     const parsed = Date.parse(value);
     return Number.isFinite(parsed) ? parsed : Date.now();
   };
+  // Older editor builds only read label/meta; keep them in sync so the list
+  // still shows a readable time and size there.
+  const formatPluginTime = (value) => {
+    const date = new Date(toTimestamp(value));
+    const now = new Date();
+    const time = date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+    if (date.toDateString() === now.toDateString()) return time;
+    const sameYear = date.getFullYear() === now.getFullYear();
+    const day = date.toLocaleDateString(undefined, sameYear
+      ? { month: '2-digit', day: '2-digit' }
+      : { year: 'numeric', month: '2-digit', day: '2-digit' });
+    return `${day} ${time}`;
+  };
+  const formatPluginBytes = (bytes) => {
+    if (!Number.isFinite(bytes) || bytes < 0) return '';
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  };
   let engine, timer, scheduled, publishing = false, again = false, versionTarget = null;
   // Storage keys only allow [a-zA-Z0-9_.-], so normalise the file id.
   const historyKey = (fileId) => 'history.' + String(fileId).replace(/[^a-zA-Z0-9_-]/g, '_');
@@ -80,7 +99,7 @@ definePlugin(async (sdk) => {
           let emptyText = '暂无历史';
           const remoteList = await sdk.net.request(`/sync/file/${encodeURIComponent(activeRecord[0])}/versions`).catch(() => null);
           if (remoteList?.status === 200 && Array.isArray(remoteList.data?.versions)) {
-            items = remoteList.data.versions.filter((entry) => !entry.deleted).map((entry) => ({ id: `${activeRecord[0]}:${entry.rev}`, rev: entry.rev, timestamp: toTimestamp(entry.updatedAt), bytes: entry.size, restored: Boolean(entry.restoredFrom) }));
+            items = remoteList.data.versions.filter((entry) => !entry.deleted).map((entry) => ({ id: `${activeRecord[0]}:${entry.rev}`, rev: entry.rev, timestamp: toTimestamp(entry.updatedAt), bytes: entry.size, restored: Boolean(entry.restoredFrom), label: formatPluginTime(entry.updatedAt), meta: formatPluginBytes(entry.size) }));
           } else if (Array.isArray(stored) && stored.length) {
             items = stored.slice().reverse().map((entry) => ({
               id: `${activeRecord[0]}:${entry.rev}`,
@@ -88,6 +107,8 @@ definePlugin(async (sdk) => {
               timestamp: toTimestamp(entry.updatedAt),
               bytes: entry.size,
               restored: Boolean(entry.restoredFrom),
+              label: formatPluginTime(entry.updatedAt),
+              meta: formatPluginBytes(entry.size),
             }));
           } else {
             const list = await sdk.rpc('net.request', { path: `/sync/file/${encodeURIComponent(activeRecord[0])}/versions`, method: 'GET' }).catch(() => null);
@@ -106,6 +127,8 @@ definePlugin(async (sdk) => {
               timestamp: toTimestamp(version.updatedAt),
               bytes: version.size,
               restored: Boolean(version.restoredFrom),
+              label: formatPluginTime(version.updatedAt),
+              meta: formatPluginBytes(version.size),
             }));
           }
           await sdk.versions.set({ path: activeDocument.relativePath, title: '云端历史', emptyText, items }).catch(() => {});
