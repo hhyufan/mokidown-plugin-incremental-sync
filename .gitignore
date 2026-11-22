@@ -4,3 +4,8 @@
 node_modules/
 .tools/
 
+
+# Local verification downloads
+.tmp/
+.rel.json
+.asset.json
