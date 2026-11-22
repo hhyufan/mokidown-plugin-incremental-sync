@@ -11,6 +11,12 @@ const ICONS = { success: check('#3fb950'), warning: warningTriangle('#d29922'), 
 const BADGES = { success: cloud('#3fb950'), warning: cloud('#d29922'), error: cloud('#f85149') };
 
 definePlugin(async (sdk) => {
+  // Server snapshots use ISO strings; the plugin's local fallback stores epoch ms.
+  const toTimestamp = (value) => {
+    if (Number.isFinite(value)) return value;
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? parsed : Date.now();
+  };
   let engine, timer, scheduled, publishing = false, again = false, versionTarget = null;
   // Storage keys only allow [a-zA-Z0-9_.-], so normalise the file id.
   const historyKey = (fileId) => 'history.' + String(fileId).replace(/[^a-zA-Z0-9_-]/g, '_');
@@ -74,13 +80,14 @@ definePlugin(async (sdk) => {
           let emptyText = '暂无历史';
           const remoteList = await sdk.net.request(`/sync/file/${encodeURIComponent(activeRecord[0])}/versions`).catch(() => null);
           if (remoteList?.status === 200 && Array.isArray(remoteList.data?.versions)) {
-            items = remoteList.data.versions.filter((entry) => !entry.deleted).map((entry) => ({ id: `${activeRecord[0]}:${entry.rev}`, rev: entry.rev, timestamp: Date.parse(entry.updatedAt), bytes: entry.size, restored: Boolean(entry.restoredFrom) }));
+            items = remoteList.data.versions.filter((entry) => !entry.deleted).map((entry) => ({ id: `${activeRecord[0]}:${entry.rev}`, rev: entry.rev, timestamp: toTimestamp(entry.updatedAt), bytes: entry.size, restored: Boolean(entry.restoredFrom) }));
           } else if (Array.isArray(stored) && stored.length) {
             items = stored.slice().reverse().map((entry) => ({
               id: `${activeRecord[0]}:${entry.rev}`,
-              label: `rev ${entry.rev}`,
-              meta: new Date(entry.updatedAt || Date.now()).toLocaleString(),
               rev: entry.rev,
+              timestamp: toTimestamp(entry.updatedAt),
+              bytes: entry.size,
+              restored: Boolean(entry.restoredFrom),
             }));
           } else {
             const list = await sdk.rpc('net.request', { path: `/sync/file/${encodeURIComponent(activeRecord[0])}/versions`, method: 'GET' }).catch(() => null);
@@ -96,7 +103,7 @@ definePlugin(async (sdk) => {
             items = versions.map((version) => ({
               id: `${activeRecord[0]}:${version.rev}`,
               rev: version.rev,
-              timestamp: Date.parse(version.updatedAt || Date.now()),
+              timestamp: toTimestamp(version.updatedAt),
               bytes: version.size,
               restored: Boolean(version.restoredFrom),
             }));
