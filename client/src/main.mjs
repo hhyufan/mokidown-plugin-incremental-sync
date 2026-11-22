@@ -148,7 +148,7 @@ definePlugin(async (sdk) => {
       if (typeof cached?.content !== 'string' || await sha256(cached.content) !== cached.checksum) throw new Error('云端历史版本读取失败，请重试或升级服务端');
       content = cached.content;
     }
-    await sdk.editor.showDiff({ path: target.path, content, label: `云端历史 rev ${payload.rev}`, actionLabel: '使用此版本', applyIcon: 'cloud-download', rev: payload.rev });
+    await sdk.editor.showDiff({ path: target.path, content, label: `云端历史 rev ${payload.rev}`, actionLabel: '使用此版本', applyIcon: 'cloud-download', rev: payload.rev, timestamp: Number.isFinite(payload?.timestamp) ? payload.timestamp : undefined });
   });
   await sdk.commands.register('sync.remote', '查看当前文件云端版本', async (args) => {
     const active = args?.path ? null : await sdk.rpc('editor.getActiveDocument').catch(() => null);
