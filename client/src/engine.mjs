@@ -54,12 +54,22 @@ export class IncrementalSync {
     return result;
   }
   async request(path, method = 'GET', body) {
-    const response = await this.call('net.request', { path, method, body });
-    if (response.status >= 400) {
-      const error = new Error(response.data.message || `HTTP ${response.status}`);
-      Object.assign(error, { status: response.status, data: response.data }); throw error;
+    for (let attempt = 0; ; attempt += 1) {
+      const response = await this.call('net.request', { path, method, body });
+      // The sync proxy rate-limits per client (token bucket). Retrying 429 here
+      // keeps a large pull/upload from failing the whole cycle; the bucket
+      // refills continuously, so exponential backoff recovers within seconds.
+      if (response.status === 429 && attempt < 5) {
+        const delay = Math.min(30000, 1000 * 2 ** attempt) + Math.random() * 250;
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        continue;
+      }
+      if (response.status >= 400) {
+        const error = new Error(response.data.message || `HTTP ${response.status}`);
+        Object.assign(error, { status: response.status, data: response.data }); throw error;
+      }
+      return response.data;
     }
-    return response.data;
   }
   async initialize() {
     const context = await this.call('context');
@@ -143,7 +153,7 @@ export class IncrementalSync {
   async pull() {
     let more = true;
     while (more) {
-      const page = await this.request(`/sync/changes?cursor=${encodeURIComponent(this.state.cursor)}&limit=25`);
+      const page = await this.request(`/sync/changes?cursor=${encodeURIComponent(this.state.cursor)}&limit=100`);
       if (!Array.isArray(page?.changes) || typeof page.nextCursor !== 'string' || typeof page.hasMore !== 'boolean' || (page.hasMore && page.nextCursor === this.state.cursor)) throw new Error('SYNC_PROTOCOL_MISMATCH: 服务端增量分页协议不完整，请升级服务端；需要 changes、nextCursor 和 hasMore，不能用旧版 cursor 响应代替。');
       for (const change of page.changes) {
         if (!/^[a-zA-Z0-9_.:-]{1,128}$/.test(change.fileId || '') || ['__proto__', 'constructor', 'prototype'].includes(change.fileId) || !Number.isSafeInteger(change.rev) || change.rev < 1) throw new Error('Invalid change entry');

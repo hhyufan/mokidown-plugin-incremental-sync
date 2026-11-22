@@ -10,7 +10,7 @@
  *   TARGET             upstream origin (default http://127.0.0.1:4319)
  *   PROXY_PORT         listen port (default 4320)
  *   SYNC_TOKEN         Bearer token injected upstream
- *   PROXY_RATE_LIMIT   requests allowed per window per client (default 60)
+ *   PROXY_RATE_LIMIT   requests allowed per window per client (default 300)
  *   PROXY_RATE_WINDOW_MS window size in ms (default 60000)
  *   PROXY_ALLOW_PATHS  comma separated path prefixes (default /capabilities,/sync/)
  */
@@ -19,7 +19,7 @@ import http from 'node:http';
 const TARGET = process.env.TARGET || 'http://127.0.0.1:4319';
 const PORT = Number(process.env.PROXY_PORT || 4320);
 const TOKEN = process.env.SYNC_TOKEN || '';
-const RATE_LIMIT = Number(process.env.PROXY_RATE_LIMIT || 60);
+const RATE_LIMIT = Number(process.env.PROXY_RATE_LIMIT || 300);
 const RATE_WINDOW = Number(process.env.PROXY_RATE_WINDOW_MS || 60000);
 const ALLOW_PATHS = (process.env.PROXY_ALLOW_PATHS || '/capabilities,/sync/')
   .split(',')
