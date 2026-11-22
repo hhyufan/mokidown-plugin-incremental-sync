@@ -121,9 +121,10 @@ export class IncrementalSync {
       this.state.pending = null; await this.save();
     } finally { this.activePath = null; this.report({ phase: '文件状态已更新', path: pending.path, state: this.state }); }
   }
-  async enqueue(fileId, path, rev, disk, resolution = false) {
+  async enqueue(fileId, path, rev, disk, resolution = false, restoredFrom) {
     const body = disk.content === null ? {} : { ...await encodeDocument(disk.content), fileName: path, encoding: 'UTF-8', lineEnding: disk.content.includes('\r\n') ? 'CRLF' : 'LF' };
     Object.assign(body, { baseRev: rev, mutationId: crypto.randomUUID() });
+    if (resolution && Number.isSafeInteger(restoredFrom) && restoredFrom > 0) body.restoredFrom = restoredFrom;
     if (encoder.encode(JSON.stringify(body)).length > 3.5 * 1024 * 1024) throw new Error(`文件请求超过 3.5 MiB: ${path}`);
     this.state.pending = { fileId, path, method: disk.content === null ? 'DELETE' : 'PUT', body, resolution };
     // Persist the immutable operation before its first network request.
@@ -243,7 +244,7 @@ export class IncrementalSync {
         disk = await this.call('fs.read', { path: conflict.path });
       }
       if (choice === 'local' || choice === 'merged') {
-        await this.enqueue(fileId, conflict.path, remote.rev, disk, true);
+        await this.enqueue(fileId, conflict.path, remote.rev, disk, true, remote.rev);
         if (this.state.conflicts[fileId] || this.state.pending) throw new Error('版本在提交期间改变，冲突尚未解决');
       } else await this.applyRemote(remote, { force: true });
       // A legacy service could create several IDs for one path. Selecting a

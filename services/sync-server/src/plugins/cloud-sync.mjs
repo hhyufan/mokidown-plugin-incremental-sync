@@ -112,6 +112,9 @@ export const cloudSyncPlugin = {
             name: body.fileName || fileId, fileName: body.fileName || fileId,
             encoding: body.encoding || 'UTF-8', lineEnding: body.lineEnding || 'LF',
             originalPath: body.originalPath || '',
+            ...(Number.isSafeInteger(body.restoredFrom) && body.restoredFrom >= 0
+              ? { restoredFrom: body.restoredFrom }
+              : {}),
           } : { name: current?.name || fileId }),
           deviceBindings: { ...current?.deviceBindings },
         };

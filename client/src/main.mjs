@@ -74,7 +74,7 @@ definePlugin(async (sdk) => {
           let emptyText = '暂无历史';
           const remoteList = await sdk.net.request(`/sync/file/${encodeURIComponent(activeRecord[0])}/versions`).catch(() => null);
           if (remoteList?.status === 200 && Array.isArray(remoteList.data?.versions)) {
-            items = remoteList.data.versions.filter((entry) => !entry.deleted).map((entry) => ({ id: `${activeRecord[0]}:${entry.rev}`, label: `rev ${entry.rev}`, meta: new Date(entry.updatedAt).toLocaleString(), rev: entry.rev }));
+            items = remoteList.data.versions.filter((entry) => !entry.deleted).map((entry) => ({ id: `${activeRecord[0]}:${entry.rev}`, rev: entry.rev, timestamp: Date.parse(entry.updatedAt), bytes: entry.size, restored: Boolean(entry.restoredFrom) }));
           } else if (Array.isArray(stored) && stored.length) {
             items = stored.slice().reverse().map((entry) => ({
               id: `${activeRecord[0]}:${entry.rev}`,
@@ -95,9 +95,10 @@ definePlugin(async (sdk) => {
             }
             items = versions.map((version) => ({
               id: `${activeRecord[0]}:${version.rev}`,
-              label: `rev ${version.rev}`,
-              meta: new Date(version.updatedAt || Date.now()).toLocaleString(),
               rev: version.rev,
+              timestamp: Date.parse(version.updatedAt || Date.now()),
+              bytes: version.size,
+              restored: Boolean(version.restoredFrom),
             }));
           }
           await sdk.versions.set({ path: activeDocument.relativePath, title: '云端历史', emptyText, items }).catch(() => {});
